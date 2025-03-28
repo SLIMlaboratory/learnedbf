@@ -762,8 +762,7 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     # backup filter
                     initial_filter_size = 0
 
-                    epsilon_b = (self.epsilon - Fp) / (1 - Fp)  
-                    print(epsilon_b)
+                    epsilon_b = (self.epsilon - Fp) / (1 - Fp)
 
                     backup_filter_size = -(Fn * self.n) * \
                                 np.log(epsilon_b) / np.log(2)**2
@@ -904,7 +903,7 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                 'classifier': self.lbf_.classifier.get_size()}
     
 
-class AdaLBF(BaseEstimator, BloomFilter, ClassifierMixin):
+class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
     """Implementation of the Adaptive Learned Bloom Filter"""
 
     def __init__(self,
@@ -925,7 +924,7 @@ class AdaLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                  num_group_min = 8,
                  num_group_max = 12,
                  verbose=False):
-        """Create an instance of :class:`AdaLBF`.
+        """Create an instance of :class:`AdaBF`.
 
         :param n: number of keys, defaults to None.
         :type n: `int`
@@ -1033,7 +1032,7 @@ class AdaLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             args.append(f'verbose={self.verbose}') 
         
         args = ', '.join(args)
-        return f'AdaLBF({args})'
+        return f'AdaBF({args})'
     
     def fit(self, X, y):
         """Fits the Adaptive Learned Bloom Filter, training its classifier,
@@ -1044,7 +1043,7 @@ class AdaLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :param y: labels of the examples.
         :type y: array of `bool`
         :return: the fit Bloom Filter instance.
-        :rtype: :class:`AdaLBF`
+        :rtype: :class:`AdaBF`
         :raises: `ValueError` if X is empty, or if no threshold value is
             compliant with the false positive rate requirements.
 
@@ -1254,6 +1253,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                  random_state=4678913,
                  num_group_min = 4,
                  num_group_max = 6,
+                 N=1000,
                  verbose=False):
         """Create an instance of :class:`PLBF`.
 
@@ -1294,7 +1294,10 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :param num_group_min: min number of groups defaults to 4
         :type num_group_min: `int`
         :param num_group_max: max number of groups, defaults to 6
-        :type num_group_min: `int`
+        :type num_group_max: `int`
+        :param N: number of segments used to discretize the classifier
+            score range, defaults to 1000
+        :type N: `int`
         :param verbose: flag triggering verbose logging, defaults to `False`.
         :type verbose: `bool`
         """
@@ -1316,6 +1319,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.verbose = verbose
         self.optim_KL = None
         self.optim_partition = None
+        self.N = N
 
     def __repr__(self):
         args = []
@@ -1342,6 +1346,8 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             args.append(f'num_group_min={self.num_group_min}')
         if self.num_group_max != 6:
             args.append(f'num_group_max={self.num_group_max}')
+        if self.N != 1000:
+            args.append(f'N={self.N}')
         if self.verbose != False:
             args.append(f'verbose={self.verbose}') 
         
@@ -1357,7 +1363,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :param y: labels of the examples.
         :type y: array of `bool`
         :return: the fit Bloom Filter instance.
-        :rtype: :class:`AdaLBF`
+        :rtype: :class:`AdaBF`
         :raises: `ValueError` if X is empty, or if no threshold value is
             compliant with the false positive rate requirements.
 
@@ -1428,7 +1434,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         key_scores = np.array(self.classifier.predict_score(X_pos))
         FP_opt = len(nonkey_scores)
 
-        interval = 1/1000
+        interval = 1/self.N
         min_score = min(np.min(key_scores), np.min(nonkey_scores))
         max_score = min(np.max(key_scores), np.max(nonkey_scores))
 

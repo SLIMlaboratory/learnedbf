@@ -215,7 +215,7 @@ class hashfunc():
     def __call__(self, x):
         return mmh3.hash(x, self.seed) % self.m
 
-class VarhashBloomFilter(BaseEstimator, ClassifierMixin):
+class VarhashBloomFilter(BaseEstimator, ClassifierMixin, BloomFilter):
 
     def __init__(self, m, k_max):
         """Ada-BF implementation

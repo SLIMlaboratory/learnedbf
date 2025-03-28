@@ -1,11 +1,11 @@
 import unittest
 import numpy as np
-from learnedbf import AdaLBF
+from learnedbf import AdaBF
 from learnedbf.classifiers import ScoredRandomForestClassifier, ScoredMLP, \
     ScoredDecisionTreeClassifier, ScoredLinearSVC
 
 
-class TestAdaLBF(unittest.TestCase):
+class TestAdaBF(unittest.TestCase):
 
     def flip_bits(self, bit_mask, prob=0.1):
         mask = np.random.rand(bit_mask.shape[0]) > prob
@@ -16,18 +16,18 @@ class TestAdaLBF(unittest.TestCase):
         return flipped_array, n_flipped
 
     def setUp(self):
-        self.lbf = AdaLBF(m=200)
+        self.lbf = AdaBF(m=200)
 
         self.filters = [
-            AdaLBF(
+            AdaBF(
                 m=100, 
                 classifier=ScoredDecisionTreeClassifier()),
-            AdaLBF(
+            AdaBF(
                 m=100, 
                 classifier=ScoredMLP(max_iter=100000, activation='logistic')),
-            AdaLBF(m=100, 
+            AdaBF(m=100, 
                 classifier=ScoredRandomForestClassifier()),
-            AdaLBF(m=100, 
+            AdaBF(m=100, 
                 classifier=ScoredLinearSVC(max_iter=100000, tol=0.1, C=0.1))
         ]
 
