@@ -2155,6 +2155,16 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return smallest
 
     def predict(self, X):
+        """Computes predictions for a set of queries, each to be checked
+        for inclusion in the Learned Bloom Filter.
+
+        :param X: elements to classify.
+        :type X: array of numerical arrays
+        :return: prediction for each value in 'X'.
+        :rtype: array of `bool`
+        :raises: NotFittedError if the classifier is not fitted.
+        """
+
         check_is_fitted(self, 'is_fitted_')
         X = check_array(X)
 
@@ -2164,7 +2174,6 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             predictions[y_hat] = 1
 
         return predictions
-        
 
     def get_size(self):
         pass
