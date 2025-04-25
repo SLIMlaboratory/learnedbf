@@ -37,5 +37,11 @@ class TestFullyLearnedBloomFilter(unittest.TestCase):
         for flbf in self.filters:
             assert flbf.is_fitted_
 
+    def test_score(self):
+        self.assertRaises(ValueError, self.not_fitted_flbf.score, self.objects, self.labels)
+
+        for flbf in self.filters:
+            self.assertTrue(abs(flbf.estimate_FPR(self.objects, self.labels) - flbf.epsilon) <= 1e-2)
+
 if __name__ == '__main__':
     unittest.main()

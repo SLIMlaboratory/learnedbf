@@ -1845,7 +1845,7 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         s = math.ceil(self.n * math.log((1/self.epsilon), 2) / math.log(2))
         z = 1 - ((1 - self.epsilon) ** (1/self.t))
         space_left = s
-        chain = []
+        self.chain = []
         fprs = []
 
         i = 0
@@ -1860,7 +1860,7 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             if i == self.t-1:
                 # Last iteration
 
-                if len(chain) == 0:
+                if len(self.chain) == 0:
                     if self.verbose:
                         print("No mlp's were added, aborting.")
                     # TODO da definire il comportamento in qs caso
@@ -1902,7 +1902,7 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     size = model.get_size()
                     fpr = model.estimate_FPR(X_test)
 
-                chain.append(model)
+                self.chain.append(model)
                 fprs.append(fpr)
                 space_left -= size
                 if self.verbose:
@@ -1913,9 +1913,9 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                 # Non-last iterations
 
                 # Adjust z according to the previous models' FPR's (if there are any)
-                if len(chain) > 0:
+                if len(self.chain) > 0:
                     z = 1 - ((1-self.epsilon) / math.prod([1 - fpr for fpr in fprs])) \
-                        **(1 / (self.t - len(chain)))
+                        **(1 / (self.t - len(self.chain)))
                     if z < 0:
                         # TODO this might be useless
                         if self.verbose:
@@ -1962,7 +1962,7 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     continue
 
                 # Current mlp is valid, we can append it to the chain
-                chain.append(model)
+                self.chain.append(model)
                 fprs.append(fpr)
                 space_left -= size
                 if self.verbose:
@@ -2155,7 +2155,16 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return smallest
 
     def predict(self, X):
-        pass
+        check_is_fitted(self, 'is_fitted_')
+        X = check_array(X)
+
+        predictions = np.zeros(len(X))
+        for model in self.chain:
+            y_hat = model.predict(X)
+            predictions[y_hat] = 1
+
+        return predictions
+        
 
     def get_size(self):
         pass
