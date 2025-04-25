@@ -1846,6 +1846,7 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         z = 1 - ((1 - self.epsilon) ** (1/self.t))
         space_left = s
         self.chain = []
+        self.sizes = []
         fprs = []
 
         i = 0
@@ -1903,8 +1904,8 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     fpr = model.estimate_FPR(X_test)
 
                 self.chain.append(model)
+                self.sizes.append(size)
                 fprs.append(fpr)
-                space_left -= size
                 if self.verbose:
                     print(f"Added a {'BF' if use_bf else 'DT'} with size {size} \
                         and FPR {fpr}; z was {z}.")
@@ -1963,6 +1964,7 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
                 # Current mlp is valid, we can append it to the chain
                 self.chain.append(model)
+                self.sizes.append(size)
                 fprs.append(fpr)
                 space_left -= size
                 if self.verbose:
@@ -2176,4 +2178,12 @@ class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return predictions
 
     def get_size(self):
-        pass
+        """Returns the size of the Fully Learned Bloom Filter.
+
+        :return: size in bits of each classifier in the chain.
+        :rtype: `tuple`
+        :raises: NotFittedError if the classifier is not fitted.
+        """
+
+        check_is_fitted(self, 'is_fitted_')
+        return tuple(self.sizes)
