@@ -5,11 +5,13 @@ import math
 import numpy as np
 
 from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.metrics import auc, precision_recall_curve, make_scorer
+from sklearn.metrics import auc, precision_recall_curve, make_scorer, confusion_matrix
 from sklearn.model_selection import StratifiedKFold, GridSearchCV, \
                                     train_test_split
 from sklearn.utils.validation import NotFittedError, check_X_y, check_array, \
                                      check_is_fitted
+from sklearn.neural_network import MLPClassifier
+from sklearn.tree import DecisionTreeClassifier
 
 from learnedbf.BF import BloomFilter, ClassicalBloomFilter, VarhashBloomFilter, ClassicalBloomFilterImpl
 from learnedbf.classifiers import ScoredDecisionTreeClassifier
@@ -902,7 +904,6 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                 'initial_filter': initial_filter_size,
                 'classifier': self.lbf_.classifier.get_size()}
     
-
 class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
     """Implementation of the Adaptive Learned Bloom Filter"""
 
@@ -1234,7 +1235,6 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return {'backup_filter': self.m,
                 'classifier': self.classifier.get_size()}
     
-
 class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
     """Implementation of the Partitioned Learned Bloom Filter"""
 
@@ -1727,3 +1727,435 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return {'backup_filters': sum([bf.m for bf in  self.backup_filters_ if bf is not None]),
                 'classifier': self.classifier.get_size()}
 
+class FLBF(BaseEstimator, BloomFilter, ClassifierMixin):
+    """Implementation of the Fully Learned Bloom Filter"""
+
+    def __init__(self,
+                 n = None,
+                 epsilon = None,
+                 t = None,
+                 fpr_test_size = 0.3,
+                 min_hidden_size = 1,
+                 max_hidden_size = 20,
+                 sigma = 0.3,
+                 C_n_min = 0.1,
+                 C_n_max = 20,
+                 random_state = 4678913,
+                 verbose = False):
+        """Create an instance of :class:`FLF`.
+
+        :param n: number of keys, defaults to None.
+        :type n: `int`
+
+        :param t: maximum number of classifiers composing the filter, defaults to None.
+        :type t: `int`
+
+        :param epsilon: expected false positive rate, defaults to None.
+        :type epsilon: `float`
+
+        :param fpr_test_size: relative test set size used to estimate
+            the empirical FPR of the learnt Bloom filter, defaults
+            to 0.3.
+        :type fpr_test_size: `float`
+
+        :param min_hidden_size: minimum number of neurons for each mlp's hidden layers,
+            defaults to 1.
+        :type min_hidden_size: `int`
+
+        :param max_hidden_size: maximum number of neurons for each mlp's hidden layers,
+            defaults to 20.
+        :type max_hidden_size: `int`
+
+        :param sigma: error threshold for each classifier's FPR, defaults to 0.3.
+        :type sigma: `float`
+
+        :param C_n_min: minimum negative class weight for each classifier, defaults to 0.1.
+        :type C_n_min: `float`
+
+        :param C_n_max: maximum negative class weight for each classifier, defaults to 20.
+        :type C_n_max: `float`
+
+        :param random_state: random seed value, defaults to `None`,
+            meaning the current seed value should be kept.
+        :type random_state: `int` or `None`
+
+        :param verbose: flag triggering verbose logging, defaults to `False`.
+        :type verbose: `bool`
+        """
+
+        self.n = n
+        self.epsilon = epsilon
+        self.t = t
+        self.fpr_test_size = fpr_test_size
+        self.min_hidden_size = min_hidden_size
+        self.max_hidden_size = max_hidden_size
+        self.sigma = sigma
+        self.C_n_min = C_n_min
+        self.C_n_max = C_n_max
+        self.random_state = random_state
+        self.verbose = verbose
+
+    def __repr__(self):
+        args = []
+        if self.epsilon != None:
+            args.append(f'epsilon={self.epsilon}')
+        if self.t != None:
+            args.append(f't={self.t}')
+        if self.fpr_test_size != 0.3:
+            args.append(f'fpr_test_size={self.fpr_test_size}')
+        if self.random_state != 4678913:
+            args.append(f'random_state={self.random_state}')
+        if self.verbose != False:
+            args.append(f'verbose={self.verbose}') 
+        
+        args = ', '.join(args)
+        return f'FLBF({args})'
+    
+    def fit(self, X, y):
+        """Fits the Fully Learned Bloom Filter.
+
+        :param X: examples to be used for fitting the classifier.
+        :type X: array of numerical arrays
+        :param y: labels of the examples.
+        :type y: array of `bool`
+        :return: the fit Bloom Filter instance.
+        :rtype: :class:`FLBF`
+        :raises: `ValueError` if X is empty.
+        """
+
+        if self.epsilon is None:
+            raise ValueError("epsilon must be specified.")
+            
+        if len(X) == 0:
+            raise ValueError('Empty set of keys')
+
+        X, y = check_X_y(X, y)
+        
+        X_pos = X[y]
+
+        self.n = len(X_pos)
+
+        neg_indices = y == False
+        neg_X, neg_y = X[neg_indices], y[neg_indices]
+        X_train, X_test, y_train, y_test = train_test_split(
+            neg_X, neg_y, test_size=self.fpr_test_size, random_state=self.random_state)
+        X_train = np.concatenate([X_pos, X_train], axis=0)
+        y_train = np.concatenate([y[y], y_train], axis=0)
+
+        s = math.ceil(self.n * math.log((1/self.epsilon), 2) / math.log(2))
+        z = 1 - ((1 - self.epsilon) ** (1/self.t))
+        space_left = s
+        chain = []
+        fprs = []
+
+        i = 0
+        while i < self.t:
+
+            positive_count = np.count_nonzero(y_train == True)
+            negative_count = np.count_nonzero(y_train == False)
+            
+            if self.verbose:
+                print(f"{positive_count} keys left ~ {negative_count} negatives.")
+
+            if i == self.t-1:
+                # Last iteration
+
+                if len(chain) == 0:
+                    if self.verbose:
+                        print("No mlp's were added, aborting.")
+                    # TODO da definire il comportamento in qs caso
+                    break
+
+                # Compute z based on all the previous classifiers performances
+                z = 1 - ((1-self.epsilon) / math.prod([1 - fpr for fpr in fprs]))
+
+                max_leaves = (space_left + 128) // 136
+                if self.verbose:
+                    print(f"Space left for tree is {space_left} => max leaves = {max_leaves}.")
+                model, fpr = self._train_smallest_tree(
+                    X_train, y_train, X_test, y_test, z, max_leaves, 
+                    self.random_state, verbose=self.verbose)
+                size = self._tree_size(model)
+
+                use_bf = False
+
+                if model is None:
+                    # Largest possible tree cannot reach z, use a BF.
+                    if self.verbose:
+                        print("Largest tree cannot reach z. BF will be used instead.")
+                    use_bf = True
+                else:
+                    # Found a valid tree
+                    # See if BF is more efficient; if so, replace tree
+                    equivalent_bf_size = math.ceil(positive_count * math.log((1/fpr), 2) / math.log(2))
+                    ratio = size / equivalent_bf_size
+                    if self.verbose:
+                        print(f"Space ratio: {ratio}.")
+                    if ratio > 1:
+                        if self.verbose:
+                            print(f"Replacing the DT with a BF. Space ratio was > 1.")
+                        use_bf = True
+
+                if use_bf:
+                    model = ClassicalBloomFilter(n=positive_count, epsilon=z)
+                    model.fit(X_train[y_train])
+                    size = model.get_size()
+                    fpr = model.estimate_FPR(X_test)
+
+                chain.append(model)
+                fprs.append(fpr)
+                space_left -= size
+                if self.verbose:
+                    print(f"Added a {'BF' if use_bf else 'DT'} with size {size} \
+                        and FPR {fpr}; z was {z}.")
+                break
+            else:
+                # Non-last iterations
+
+                # Adjust z according to the previous models' FPR's (if there are any)
+                if len(chain) > 0:
+                    z = 1 - ((1-self.epsilon) / math.prod([1 - fpr for fpr in fprs])) \
+                        **(1 / (self.t - len(chain)))
+                    if z < 0:
+                        # TODO this might be useless
+                        if self.verbose:
+                            print(f"Cannot reach desired FPR, adjusted z was {z}.")
+                        break
+
+                model, fpr, size = self._train_best_mlp(
+                    X_train, y_train, X_test, y_test, z, self.random_state, 
+                    self.max_hidden_size, self.min_hidden_size, self.sigma,
+                    self.C_n_min, self.C_n_max, verbose=self.verbose)
+                
+                # If the mlp is not valid, skip to the last iteration
+                if model is None:
+                    if self.verbose:
+                        print(f"Skipping to final classifier after {i} added mlp's. \
+                            Last one had intolerable FPR.")
+                    i = self.t-1
+                    continue
+                
+                y_hat_train = model.predict(X_train)
+
+                # Compute TPs, FNs
+                cm = confusion_matrix(y_train, y_hat_train, labels=[False, True])
+                tp = cm[1][1]
+                fn = cm[1][0]
+
+                if tp == 0:
+                    if self.verbose:
+                        print(f"Skipping to final classifier after {i} added mlp's. \
+                              No true positives.")
+                    i = self.t-1
+                    continue
+
+                # Calculate space ratio between current classifier and equivalent bloom filter
+                equivalent_bf_size = math.ceil(tp * math.log((1/fpr), 2) / math.log(2))
+                ratio = size / equivalent_bf_size
+                if self.verbose:
+                    print(f"Space ratio: {ratio}")
+                if ratio > 1:
+                    if self.verbose:
+                        print(f"Skipping to final classifier after {i} added mlp's. \
+                                Space ratio was > 1.")
+                    i = self.t-1
+                    continue
+
+                # Current mlp is valid, we can append it to the chain
+                chain.append(model)
+                fprs.append(fpr)
+                space_left -= size
+                if self.verbose:
+                    print(f"Added a mlp with size {size} and FPR {fpr}; z was {z}.")
+
+                if fn == 0:
+                    if self.verbose:
+                        print("No false negatives, end of training.")
+                    break
+
+                # Keep only samples classified as negative
+                train_negatives_idx = y_hat_train == False
+                X_train, y_train = X_train[train_negatives_idx], y_train[train_negatives_idx]
+                y_hat_test = model.predict(X_test)
+                test_negatives_idx = y_hat_test == False
+                X_test, y_test = X_test[test_negatives_idx], y_test[test_negatives_idx]
+
+                i += 1
+        
+        self.is_fitted_ = True
+        return self
+
+    def _mlp_size(self, in_neurons, hidden_layers, out_neurons=1, bits_per_param=32):
+        """
+        Returns the size of the network [bits].
+        """
+        
+        layers = [in_neurons] + hidden_layers + [out_neurons]
+        total_weights = sum(layers[i] * layers[i + 1] for i in range(len(layers) - 1))
+        total_biases = sum(hidden_layers) + out_neurons
+
+        return (total_weights + total_biases) * bits_per_param
+
+    def _train_best_mlp(self, X_train, y_train, X_test, y_test, z, random_state, 
+                     max_hidden_size, min_hidden_size, sigma,
+                     C_n_min, C_n_max, verbose=False):
+        """
+        Trains a mlp with FPR close to z by doing a binary search on C_n 
+        and a linear search on hidden layer size.
+        Returns None if the best mlp found does not have a tolerable FPR.
+        """
+
+        hidden_layers_size = min_hidden_size
+        
+        while True:
+            if verbose:
+                print(f"Training a MLP with hidden layers size of {hidden_layers_size}")
+            
+            C_n_inf, C_n_sup = C_n_min, C_n_max
+            
+            while True:
+                curr_C_n = (C_n_sup + C_n_inf) / 2
+            
+                # Train a mlp with negative weight of curr_C_n
+                sample_weights = [curr_C_n if not i else 1 for i in y_train]
+                mlp = MLPClassifier(
+                    hidden_layer_sizes=[hidden_layers_size]*2, 
+                    max_iter=2000, random_state=random_state)
+                mlp.fit(X_train, y_train, sample_weights)
+                
+                # Evaluate FPR on test set and halve C_n range accordingly
+                FPR = self._false_positive_rate(y_test, mlp.predict(X_test))
+                delta = z - FPR
+                
+                if delta >= 0:
+                    C_n_sup = curr_C_n
+                elif delta < 0:
+                    C_n_inf = curr_C_n
+                    
+                if C_n_sup - C_n_inf <= 1e-6:
+                    # End of binary search on C_n
+                    if verbose:
+                        print(f"Best mlp has FPR = {FPR}, z = {z} => delta {delta}")
+                    break
+            
+            # See whether to increase or decrease network size
+            if FPR < z * (1 - sigma) or FPR > z * (1 + sigma):
+                if verbose:
+                    print(f"FPR is not in range [{z * (1 - sigma)}, {z * (1 + sigma)}]")
+                # Need a bigger network
+                if hidden_layers_size == max_hidden_size:
+                    # Already at maximum size
+                    return None, 0, 0
+                
+                hidden_layers_size += 1
+                    
+            else:
+                # Found a valid network
+                return mlp, FPR, self._mlp_size(X_train.shape[1], [hidden_layers_size]*2)
+
+    def _train_best_tree(self, X, y, class_weight_list, seed, max_leaf_nodes=None, verbose=False):
+        best_FNR = 1
+        # Loop over the class weights and train a decision tree for each
+        for weight in class_weight_list:
+            # Initialize the DecisionTreeClassifier with the current class weight
+            dtc = DecisionTreeClassifier(
+                class_weight=weight, max_leaf_nodes=max_leaf_nodes,random_state=seed)
+            
+            dtc.fit(X, y)
+            y_pred = dtc.predict(X)
+            cm = confusion_matrix(y, y_pred, labels=[False, True])
+            fn = cm[1][0]
+            tp = cm[1][1]
+            fnr = fn / (fn + tp)
+            
+            if verbose:
+                print("\t class_weight:", weight)
+                print(f"False Negative Rate: {fnr}")
+
+            if fnr < best_FNR:
+                best_FNR = fnr
+                best_estimator = dtc
+                best_weight = weight
+            if best_FNR == 0:
+                break    
+        
+        return best_estimator, best_weight, best_FNR
+
+    def _false_positive_rate(self, y_true, y_pred):
+        cm = confusion_matrix(y_true, y_pred, labels=[False, True])
+        tn, fp, _, _ = cm.ravel()
+        return fp / (fp + tn)
+
+    def _tree_size(self, tree):
+        if tree is None:
+            return 0
+        n_leaves = tree.tree_.n_leaves
+        n_inner = tree.tree_.node_count-n_leaves
+        space_in_bit= 8*n_leaves + 128*n_inner
+        return space_in_bit
+
+    def _train_smallest_tree(
+            self, X_train, y_train, X_test, y_test, z, 
+            max_leaves, random_state, verbose=False):
+        """
+        Trains the smallest tree that has FN=0, FPR<=z and max_leaves leaves at most.
+        If there's no such tree, returns None.
+        """
+        
+        class_weights = [{False: 1, True: w} for w in np.arange(1, 50.1, 0.1)]
+
+        # See if biggest tree can reach FPR<=z. If not, rule out DT entirely.
+        model, _, fnr = self._train_best_tree(X_train, y_train, class_weights, 
+                                random_state, max_leaf_nodes=max_leaves, verbose=verbose)
+        y_hat_test = model.predict(X_test)
+        fpr = self._false_positive_rate(y_test, y_hat_test)
+        if fpr > z or fnr > 0:
+            if verbose:
+                print(f"Ruled out DT immediately: largest tree is not sufficient.")
+            return None, 0
+
+        sup = max_leaves
+        inf = 2
+        smallest = [model, fpr]
+
+        while inf <= sup:
+            leaves = (sup + inf) // 2
+            if verbose:
+                print(f"Training tree with max leaves = {leaves}.")
+            model, C_p, fnr = self._train_best_tree(
+                X_train, y_train, class_weights, random_state, 
+                max_leaf_nodes=leaves, verbose=verbose)
+            
+            y_hat_test = model.predict(X_test)
+            fpr = self._false_positive_rate(y_test, y_hat_test)
+            
+            if verbose:
+                print(f"FPR = {fpr}, z = {z}.")
+
+            if fpr > z or fnr > 0:
+                # Need to increase number of leaves
+                # First, check if BF with FPR=z is already more space-efficient
+                y_hat_train = model.predict(X_train)
+                cm = confusion_matrix(y_hat_train, y_train, labels=[False, True])
+                tp = cm[1][1]
+                equivalent_bf_size = math.ceil(tp * math.log((1/z), 2) / math.log(2))
+                size = self._tree_size(model)
+                ratio = size / equivalent_bf_size
+                if ratio > 1:
+                    print(f"BF with FPR=z is already more efficient (ratio={ratio}).")
+                    return smallest
+                
+                inf = leaves + 1
+            else:
+                # Found a valid DT
+                smallest = model, fpr
+                # Can decrease number of leaves
+                sup = leaves - 1
+
+        return smallest
+
+    def predict(self, X):
+        pass
+
+    def get_size(self):
+        pass
