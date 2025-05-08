@@ -233,6 +233,8 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
             check_is_fitted(self.classifier)
             # a trained classifier was passed to the constructor
             X_neg_threshold_test = X[~y]
+            print(f'lenght of x_neg_threshold_test is {len(X_neg_threshold_test)}')
+            print('-----------------------')
         except NotFittedError:
             # the classifier has to be trained
             X_neg = X[~y]
@@ -268,21 +270,30 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
             key_scores = self.classifier.predict_score(X_pos)
             del X_pos
             gc.collect()
+            print(f'lenght of x_neg_threshold_test is {len(X_neg_threshold_test)}')
             nonkey_scores = self.classifier.predict_score(X_neg_threshold_test)
             del X_neg_threshold_test
             gc.collect()
 
             scores = np.hstack([key_scores, nonkey_scores])
-            candidate_threshold = \
-                np.quantile(scores,
-                            np.linspace(0,
-                                        1 - 1 / len(scores),
-                                        self.num_candidate_thresholds))
+
+            unique_scores = np.unique(scores)
+            n_unique = len(unique_scores)
+            if n_unique <= self.num_candidate_thresholds:
+                self.num_candidate_thresholds = n_unique - 1
+                candidate_threshold = np.sort(unique_scores)[:-1]
+            else:
+                candidate_threshold = \
+                    np.quantile(scores,
+                                np.linspace(0,
+                                            1 - 1 / len(scores),
+                                            self.num_candidate_thresholds))
 
             self.backup_filter_size = np.inf
             self.threshold = None
 
             if self.m is not None:
+                print('non devo entrare qui')
                 epsilon = 1
                 self.backup_filter_size = self.m
                 for t in candidate_threshold:
@@ -327,10 +338,18 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
                 self.epsilon = epsilon
 
             elif self.epsilon is not None:
+                print('invece DEVO entrare qui')
                 #caso ottimizzo m
+                print(f'candidate threshold = {candidate_threshold}')
+                print(f'nonkey-scores lenght is {len(nonkey_scores)}')
                 for t in candidate_threshold:
                     key_predictions = (key_scores > t)
                     nonkey_predictions = (nonkey_scores > t)
+
+                    nonkey_predictions_temp = (nonkey_scores >= t)
+                    epsilon_tau = nonkey_predictions_temp.sum() / len(nonkey_predictions_temp)
+                    if epsilon_tau == 0:
+                        print('\t\tepsilon tau is zero!')
 
                     result = threshold_evaluate(self.epsilon,
                                                 key_predictions,
@@ -338,9 +357,19 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     if result is None:
                         # epsilon_tau >= epsilon, constraint not met
                         # don't consider this value of t
+                        print('skipping!')
                         continue
 
                     e_t, e_b, m_b = result
+
+                    print(f'tau={t:.2f}, e_t={e_t:.2f}, e_b={e_b:.2f}, m_b={m_b:.2f}')
+                    print(f'    epsilon for filter: {e_t + (1 - e_t) * e_b}')
+
+                    if m_b == 0 and e_t <= self.epsilon:
+                        self.threshold = t
+                        self.backup_filter_ = None
+                        break
+
 
                     if m_b < self.backup_filter_size:
                         self.threshold = t
