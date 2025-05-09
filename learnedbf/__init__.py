@@ -220,6 +220,8 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         X, y = check_X_y(X, y)
 
+        y = check_y(y)
+
         if self.random_state is not None:
             self.model_selection_method.random_state = self.random_state
         
@@ -1095,6 +1097,8 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         X, y = check_X_y(X, y)
 
+        y = check_y(y)
+
         if self.random_state is not None:
             self.model_selection_method.random_state = self.random_state
         
@@ -1415,6 +1419,8 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                              between m and epsilon must be specified.")
 
         X, y = check_X_y(X, y)
+
+        y = check_y(y)
 
         if self.random_state is not None:
             self.model_selection_method.random_state = self.random_state
