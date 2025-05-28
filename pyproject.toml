@@ -13,7 +13,12 @@ description = "A python package for Learned Bloom Filters"
 keywords = ["Bloom filters", "Learned Bloom filters", "machine learning"]
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = [ ]
+dependencies = [ 'mmh3==3.0.0',
+                 'numpy==1.22.4',
+                 'packaging==25.0',
+                 'problexity==0.5.8',
+                 'pybloom_live==4.0.0',
+                 'scikit-learn==1.0.2']
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
