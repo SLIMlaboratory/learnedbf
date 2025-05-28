@@ -114,7 +114,9 @@ class BloomFilter:
 
         Note: the rate is computed only on non-key values. Thus, if y is
         provided, all true labels (that is, keys) are removed; otherwise,
-        all elements in X are assumed to be non-key values.
+        all elements in X are assumed to be non-key values. When dealing with
+        learned filters, it is important that X does not contain any non-key used to build the filter, in order to avoid overfitting in the
+        empirical FPR estimate.
         """
 
         check_is_fitted(self, 'is_fitted_')
