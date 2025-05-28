@@ -28,8 +28,10 @@ numpy==1.22.4
     #   problexity
     #   scikit-learn
     #   scipy
-packaging==24.0
-    # via matplotlib
+packaging==25.0
+    # via
+    #   -r requirements.in
+    #   matplotlib
 pandas==2.2.3
     # via problexity
 pillow==9.5.0
@@ -52,7 +54,6 @@ scikit-learn==1.0.2
     #   problexity
 scipy==1.7.3
     # via
-    #   -r requirements.in
     #   problexity
     #   scikit-learn
 six==1.17.0
@@ -65,6 +66,3 @@ tzdata==2025.2
     # via pandas
 xxhash==3.5.0
     # via pybloom-live
-
-# The following packages are considered to be unsafe in a requirements file:
-# pip

@@ -1,7 +1,6 @@
 mmh3==3.0.0
 numpy==1.22.4
-pip==24.0
+packaging==25.0
 problexity==0.5.8
 pybloom_live==4.0.0
 scikit-learn==1.0.2
-scipy==1.7.3

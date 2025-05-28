@@ -1,26 +1,19 @@
 [build-system]
-requires = ["setuptools >= 80", "wheel"]
+requires = ["setuptools >= 61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 
 [project]
 name = "learnedbf"
-license = "Apache-2.0"
+license =  "Apache-2.0"
 authors = [
   { name="SLIMlaboratory", email="slim@di.unimi.it" },
 ]
 description = "A python package for Learned Bloom Filters"
 keywords = ["Bloom filters", "Learned Bloom filters", "machine learning"]
 readme = "README.md"
-requires-python = ">=3.8"
-dependencies = [
-  "bitarray",
-  "mmh3==3.0.0",
-  "numpy==1.22.4",
-  "pybloom_live==4.0.0",
-  "problexity==0.5.8",
-  "scikit-learn==1.0.2",
-]
+requires-python = ">=3.9"
+dependencies = [ ]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -35,7 +28,7 @@ Documentation = "https://learnedbf.readthedocs.io/"
 Issues = "https://github.com/SLIMlaboratory/learnedbf/issues"
 
 [tool.setuptools]
-include-package-data = false
+include-package-data = true
 
 [tool.setuptools.dynamic]
 version = {attr = "learnedbf.__version__"}
