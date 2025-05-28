@@ -1,10 +1,11 @@
 [build-system]
-requires = ["setuptools >= 61.0", "setuptools-scm", "wheel"]
+requires = ["setuptools >= 80", "wheel"]
 build-backend = "setuptools.build_meta"
 
 
 [project]
 name = "learnedbf"
+license = "Apache-2.0"
 authors = [
   { name="SLIMlaboratory", email="slim@di.unimi.it" },
 ]
@@ -20,7 +21,6 @@ dependencies = [
   "problexity==0.5.8",
   "scikit-learn==1.0.2",
 ]
-license = {text = "Apache-2.0"}
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
