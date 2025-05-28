@@ -20,7 +20,7 @@ from learnedbf.classifiers import ScoredDecisionTreeClassifier
 # TODO: check what happens with the `classes_` attribute of classifiers
 #       not based on trees
 
-__version__ = '0.6'
+__version__ = '0.6.1'
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
