@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "learnedbf"
 authors = [
-  { name="Dario Malchiodi", email="dario.malchiodi@unimi.it" },
+  { name="SLIMlaboratory", email="slim@di.unimi.it" },
 ]
 description = "A python package for Learned Bloom Filters"
 keywords = ["Bloom filters", "Learned Bloom filters", "machine learning"]
@@ -30,9 +30,9 @@ classifiers = [
 dynamic = ['version']
 
 [project.urls]
-Homepage = "https://github.com/dariomalchiodi/learnedbf"
+Homepage = "https://github.com/SLIMlaboratory/learnedbf"
 Documentation = "https://learnedbf.readthedocs.io/"
-Issues = "https://github.com/dariomalchiodi/learnedbf/issues"
+Issues = "https://github.com/SLIMlaboratory/learnedbf/issues"
 
 [tool.setuptools]
 include-package-data = false
