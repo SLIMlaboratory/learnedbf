@@ -76,6 +76,10 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/.doctrees/
+docs/.buildinfo
+docs/_autosummary/
+docs/.ipynb_checkpoints/
 
 # PyBuilder
 .pybuilder/

@@ -4,3 +4,5 @@ packaging==25.0
 problexity==0.5.8
 pybloom_live==4.0.0
 scikit-learn==1.0.2
+sphinx
+sphinx-rtd-theme
