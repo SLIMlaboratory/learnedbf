@@ -1,3 +1,19 @@
+# TODO
+# is it necessary to adapt FastPLBF code to using our BF implementation?
+# Specify that PLBF and FastPLBF are taken from
+# https://github.com/atsukisato/FastPLBF/tree/main
+# add a third_party_licenses.txt file with contents
+# as in this template:
+# This project includes code licensed under the MIT License:
+
+# <Nome del pacchetto o file>
+# Copyright (c) <Anno> <Nome autore>
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy...
+# [include tutta la licenza MIT qui]
+
+
+
 import abc
 import gc
 import logging
@@ -15,6 +31,8 @@ from sklearn.tree import DecisionTreeClassifier
 
 from learnedbf.BF import BloomFilter, ClassicalBloomFilter, VarhashBloomFilter, ClassicalBloomFilterImpl
 from learnedbf.classifiers import ScoredDecisionTreeClassifier
+
+from learnedbf.fastPLBF.PLBF import PLBF as SupportPLBF
 
 # TODO: check the behavior when using non-integer keys
 # TODO: check what happens with the `classes_` attribute of classifiers
@@ -1486,7 +1504,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             self.optim_KL = optim_KL
             self.optim_partition = optim_partition
 
-        if self.m != None:
+        if self.m is not None:
 
             FP_opt = len(nonkey_scores)
             
@@ -1565,98 +1583,31 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                         print('False positive items: {}, FPR: {} Number of groups: {}'.format(FP_items, FPR, num_group))
                         print("optimal thresholds: ", thresholds_opt)
 
-        elif self.epsilon != None:
-
+        elif self.epsilon is not None:
+            
             m_optimal = np.inf
 
             for num_group in range(self.num_group_min, self.num_group_max+1):
-
-                ### Determine the thresholds    
-                thresholds = np.zeros(num_group + 1)
-                thresholds[0] = -0.00001
-                thresholds[-1] = 1.00001
-                inter_thresholds_ix = self.optim_partition[-1][num_group-1]
-                inter_thresholds = score_partition[inter_thresholds_ix]
-                thresholds[1:-1] = inter_thresholds
-                
-
-                ### Count the keys of each group
-                count_nonkey = np.zeros(num_group)
-                count_key = np.zeros(num_group)
-
-                query_group = []
-                for j in range(num_group):
-                    count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & \
-                                          (nonkey_scores < thresholds[j + 1]))
-                    count_key[j] = sum((key_scores >= thresholds[j]) & \
-                                       (key_scores < thresholds[j + 1]))
-                    query_group.append(X_pos[(key_scores >= thresholds[j]) & \
-                                             (key_scores < thresholds[j + 1])])
-                    g_sum = 0
-                    h_sum = 0
-
-                f = np.zeros(num_group)
-
-                for i in range(num_group):
-                    f[i] = self.epsilon * (count_key[i]/sum(count_key)) / \
-                                 (count_nonkey[i]/sum(count_nonkey))
-
-                while sum(f > 1) > 0:
-                    for i in range(num_group):
-                        f[i] = min(1, f[i])
-
-                    g_sum = 0
-                    h_sum = 0
-
-                    for i in range(num_group):
-                        if f[i] == 1:
-                            g_sum += count_key[i] / np.sum(count_key)
-                            h_sum += count_nonkey[i] / np.sum(count_nonkey)
-                    
-                    for i in range(num_group):
-                        if f[i] < 1:
-
-                            g_i = count_key[i]/sum(count_key)
-                            h_i = count_nonkey[i]/sum(count_nonkey)
-                            f[i] = g_i*(self.epsilon-h_sum) / (h_i*(1-g_sum))
-
+                f = SupportPLBF(#X_pos.tolist(),
+                                [bytes(i) for i in X_pos],
+                                key_scores.tolist(),
+                                nonkey_scores.tolist(),
+                                self.epsilon,
+                                self.N,
+                                num_group)
                 m = 0
-                for i in range(num_group):
-                    if f[i] < 1:
-                        m += -count_key[i] * np.log(f[i]) / np.log(2)**2
+                for bf in f.backup_bloom_filters:
+                    if bf is not None:
+                        m += bf.get_size()
+
                 if m < m_optimal:
                     m_optimal = m
                     f_optimal = f
                     num_group_opt = num_group
-                    thresholds_opt = thresholds
 
-
-            count_nonkey = np.zeros(num_group_opt)
-            count_key = np.zeros(num_group_opt)
-            query_group = []
-            for j in range(num_group_opt):
-                count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & \
-                                        (nonkey_scores < thresholds[j + 1]))
-                count_key[j] = sum((key_scores >= thresholds[j]) & \
-                                    (key_scores < thresholds[j + 1]))
-                query_group.append(X_pos[(key_scores >= thresholds[j]) & \
-                                            (key_scores < thresholds[j + 1])])
-
-            backup_filters_opt = []
-            for i in range(num_group_opt):
-                if f_optimal[i] < 1:
-                    bf = ClassicalBloomFilter(filter_class=self.classical_BF_class, 
-                                        n=count_key[i], 
-                                        epsilon=f[i])
-                    for key in query_group[i]:
-                        bf.add(key)
-                    backup_filters_opt.append(bf)
-                else:
-                    backup_filters_opt.append(None)
-
+            self.splbf = f_optimal
+        
         self.num_groups = num_group_opt
-        self.thresholds_ = thresholds_opt
-        self.backup_filters_ = backup_filters_opt
         self.is_fitted_ = True
         self.n_features_in_ = X.shape[1]
 
@@ -1685,24 +1636,8 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         scores = np.array(self.classifier.predict_score(X))
 
-        counts = [0] * self.num_groups
-
-        for j in range(self.num_groups):
-            counts[j] = sum((scores >= self.thresholds_[j]) & (scores < self.thresholds_[j + 1]))
-
-        # predictions = scores > self.__thresholds[-1]
-        # negative_sample = X[scores <= self.__thresholds[-1]]
-        # negative_scores = scores[scores <= self.__thresholds[-1]]
-
-        predictions = []
-        for score, item in zip(scores, X):
-            ix = min(np.where(score < self.thresholds_)[0]) - 1
-
-            if self.backup_filters_[ix] is None:
-                predictions.append(True)
-            else:
-                predictions.append(self.backup_filters_[ix].check(item))
-
+        predictions = [self.splbf.contains(key, score)
+                       for key, score in zip(X, scores)]
         return np.array(predictions)
 
     def get_size(self):
@@ -1719,6 +1654,494 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         check_is_fitted(self, 'is_fitted_')
 
-        return {'backup_filters': sum([bf.m for bf in  self.backup_filters_ if bf is not None]),
+        return {'backup_filters': sum([bf.get_size()
+                  for bf in self.splbf.backup_bloom_filters if bf is not None]),
                 'classifier': self.classifier.get_size()}
 
+# OLD PLBF implementation, kept for reference
+
+# class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
+#     """Implementation of the Partitioned Learned Bloom Filter"""
+
+#     def __init__(self,
+#                  n=None,
+#                  epsilon=None,
+#                  m=None,
+#                  classifier=ScoredDecisionTreeClassifier(),
+#                  hyperparameters={},
+#                  threshold_test_size=0.2,
+#                  model_selection_method=StratifiedKFold(n_splits=5,
+#                                                         shuffle=True),
+#                  scoring=auprc_score,
+#                  classical_BF_class=ClassicalBloomFilterImpl,
+#                  random_state=4678913,
+#                  num_group_min = 4,
+#                  num_group_max = 6,
+#                  N=1000,
+#                  verbose=False):
+#         """Create an instance of :class:`PLBF`.
+
+#         :param n: number of keys, defaults to None.
+#         :type n: `int`
+#         :param epsilon: expected false positive rate, defaults to None.
+#         :type epsilon: `float`
+#         :param m: dimension in bit of the bitmap, defaults to None.
+#         :type m: `int`
+#         :param classifier: classifier to be trained, defaults to
+#             :class:`DecisionTreeClassifier`.
+#         :type classifier: 
+#             :class:`sklearn.BaseEstimator`
+#         :param hyperparameters: grid of values for hyperparameters to be
+#             considered during classifier training, defaults to {}.
+#         :type hyperparameters: `dict`
+#         :param threshold_test_size: relative validation set size used to set
+#             the best classifier threshold, defaults to 0.7.
+#         :param model_selection_method: strategy to be used for
+#             discovering the best hyperparameter values for the learnt
+#             classifier, defaults to
+#             `StratifiedKFold(n_splits=5, shuffle=True)`.
+#         :type model_selection_method:
+#             :class:`sklearn.model_selection.BaseShuffleSplit` or
+#             :class:`sklearn.model_selection.BaseCrossValidator`
+#         :param scoring: method to be used for scoring learnt
+#             classifiers, defaults to `auprc`.
+#         :type scoring: `str` or function
+#         :param classical_BF_class: class of the backup filter, defaults
+#             to :class:`ClassicalBloomFilterImpl`.
+#         :param random_state: random seed value, defaults to `None`,
+#             meaning the current seed value should be kept.
+#         :type random_state: `int` or `None`
+#         :param num_group_min: min number of groups defaults to 4
+#         :type num_group_min: `int`
+#         :param num_group_max: max number of groups, defaults to 6
+#         :type num_group_max: `int`
+#         :param N: number of segments used to discretize the classifier
+#             score range, defaults to 1000
+#         :type N: `int`
+#         :param verbose: flag triggering verbose logging, defaults to `False`.
+#         :type verbose: `bool`
+#         """
+
+#         self.n = n
+#         self.epsilon = epsilon
+#         self.m = m
+#         self.classifier = classifier
+#         self.hyperparameters = hyperparameters
+#         self.threshold_test_size = threshold_test_size
+#         self.model_selection_method = model_selection_method
+#         self.scoring = scoring
+#         self.threshold_evaluate = threshold_evaluate
+#         self.classical_BF_class = classical_BF_class
+#         self.random_state = random_state
+#         self.num_group_min = num_group_min
+#         self.num_group_max = num_group_max
+#         self.verbose = verbose
+#         self.optim_KL = None
+#         self.optim_partition = None
+#         self.N = N
+
+#     def __repr__(self):
+#         args = []
+#         if self.epsilon != None:
+#             args.append(f'epsilon={self.epsilon}')
+#         if self.classifier.__repr__() != 'ScoredDecisionTreeClassifier()':
+#             args.append(f'classifier={self.classifier}')
+#         if self.hyperparameters != {}:
+#             args.append(f'hyperparameters={self.hyperparameters}')
+#         if (self.model_selection_method.__class__ != StratifiedKFold or 
+#             self.model_selection_method.n_splits != 5 or 
+#             self.model_selection_method.shuffle != True):
+#             args.append(f'model_selection_method={self.model_selection_method}')
+#         if callable(self.scoring):
+#             if self.scoring.__name__ != 'auprc_score':
+#                 args.append(f'scoring={self.scoring.__name__}')
+#         else:
+#             score_name = args.append(f'scoring="{self.scoring}"')
+#         if self.random_state != 4678913:
+#             args.append(f'random_state={self.random_state}')
+#         if self.num_group_min != 4:
+#             args.append(f'num_group_min={self.num_group_min}')
+#         if self.num_group_max != 6:
+#             args.append(f'num_group_max={self.num_group_max}')
+#         if self.N != 1000:
+#             args.append(f'N={self.N}')
+#         if self.verbose != False:
+#             args.append(f'verbose={self.verbose}') 
+        
+#         args = ', '.join(args)
+#         return f'PLBF({args})'
+    
+#     def fit(self, X, y):
+#         """Fits the Partitioned Bloom Filter, training its classifier,
+#         setting the score thresholds and building the backup filter.
+
+#         :param X: examples to be used for fitting the classifier.
+#         :type X: array of numerical arrays
+#         :param y: labels of the examples.
+#         :type y: array of `bool`
+#         :return: the fit Bloom Filter instance.
+#         :rtype: :class:`AdaBF`
+#         :raises: `ValueError` if X is empty, or if no threshold value is
+#             compliant with the false positive rate requirements.
+
+#         NOTE: If the classifier variable instance has been specified as an
+#         already trained classifier, `X` and `y` are considered as the dataset
+#         to be used to build the LBF, that is, setting the threshold for the
+#         in output of the classifier, and evaluating the overall empirical FPR.
+#         In this case, `X` and `y` are assumed to contain values not used in
+#         order to infer the classifier, in order to ensure a fair estimate of
+#         FPR. Otherwise, `X` and `y` are meant to be the examples to be used to
+#         train the classifier, and subsequently set the threshold and evaluate
+#         the empirical FPR.
+#         """
+        
+#         if len(X) == 0:
+#             raise ValueError('Empty set of keys')
+        
+#         if self.m is None and self.epsilon is None:
+#             raise ValueError("At least one parameter \
+#                              between m and epsilon must be specified.")
+
+#         X, y = check_X_y(X, y)
+
+#         y = check_y(y)
+
+#         if self.random_state is not None:
+#             self.model_selection_method.random_state = self.random_state
+        
+#         X_pos = X[y]
+#         self.n = len(X_pos)
+
+#         y_pos = y[y]
+
+#         try:
+#             check_is_fitted(self.classifier)
+#             X_neg_threshold_test = X[~y]
+#         except NotFittedError:
+#             X_neg = X[~y]
+
+#             X_neg_trainval, X_neg_threshold_test = \
+#                 train_test_split(X_neg,
+#                                  test_size=self.threshold_test_size,
+#                                  random_state=self.random_state)
+#             del X_neg
+#             gc.collect()
+#             y_neg_trainval = [False] * len(X_neg_trainval)
+#             X_trainval = np.vstack([X_pos, X_neg_trainval])
+#             del X_neg_trainval
+#             gc.collect()
+
+#             y_trainval = np.hstack([y_pos, y_neg_trainval])
+#             del y_neg_trainval
+#             gc.collect()
+
+#             model = GridSearchCV(estimator=self.classifier,
+#                                  param_grid=self.hyperparameters,
+#                                  cv=self.model_selection_method,
+#                                  scoring=self.scoring,  
+#                                  refit=True,
+#                                  n_jobs=-1)
+#             model.fit(X_trainval, y_trainval)
+#             del X_trainval, y_trainval
+#             gc.collect()
+#             self.classifier = model.best_estimator_
+
+#         X_neg = X[~y]
+#         X_pos = X[y]
+        
+#         nonkey_scores = np.array(self.classifier.predict_score(X_neg_threshold_test))
+#         key_scores = np.array(self.classifier.predict_score(X_pos))
+#         FP_opt = len(nonkey_scores)
+
+#         interval = 1/self.N
+#         min_score = min(np.min(key_scores), np.min(nonkey_scores))
+#         max_score = min(np.max(key_scores), np.max(nonkey_scores))
+
+#         score_partition = np.arange(min_score-10**(-10),max_score+10**(-10)+interval,interval)
+
+#         h = [np.sum((score_low<=nonkey_scores) & (nonkey_scores<score_up)) for score_low, score_up in zip(score_partition[:-1], score_partition[1:])]
+#         h = np.array(h)       
+
+#         ## Merge the interval with less than 5 nonkey
+#         delete_ix = []
+#         for i in range(len(h)):
+#             if h[i] < 1:
+#                 delete_ix += [i]
+#         score_partition = np.delete(score_partition, [i for i in delete_ix])
+
+#         h = [np.sum((score_low<=nonkey_scores) & (nonkey_scores<score_up)) for score_low, score_up in zip(score_partition[:-1], score_partition[1:])]
+#         h = np.array(h)
+#         g = [np.sum((score_low<=key_scores) & (key_scores<score_up)) for score_low, score_up in zip(score_partition[:-1], score_partition[1:])]
+#         g = np.array(g)
+
+#         delete_ix = []
+#         for i in range(len(g)):
+#             if g[i] < 1:
+#                 delete_ix += [i]
+#         score_partition = np.delete(score_partition, [i for i in delete_ix])
+
+#         ## Find the counts in each interval
+#         h = [np.sum((score_low<=nonkey_scores) & (nonkey_scores<score_up)) for score_low, score_up in zip(score_partition[:-1], score_partition[1:])]
+#         h = np.array(h) / sum(h)
+#         g = [np.sum((score_low<=key_scores) & (key_scores<score_up)) for score_low, score_up in zip(score_partition[:-1], score_partition[1:])]
+#         g = np.array(g) / sum(g)
+        
+#         n = len(score_partition)
+#         if self.optim_KL is None and self.optim_partition is None:
+
+#             optim_KL = np.zeros((n, self.num_group_max))
+#             optim_partition = [[0]*self.num_group_max for _ in range(n)]
+
+#             for i in range(n):
+#                 optim_KL[i,0] = np.sum(g[:(i+1)]) * np.log2(sum(g[:(i+1)])/sum(h[:(i+1)]))
+#                 optim_partition[i][0] = [i]
+
+#             for j in range(1,self.num_group_max):
+#                 for m in range(j,n):
+#                     candidate_par = np.array([optim_KL[i][j-1]+np.sum(g[i:(m+1)])* \
+#                             np.log2(np.sum(g[i:(m+1)])/np.sum(h[i:(m+1)])) for i in range(j-1,m)])
+#                     optim_KL[m][j] = np.max(candidate_par)
+#                     ix = np.where(candidate_par == np.max(candidate_par))[0][0] + (j-1)
+#                     if j > 1:
+#                         optim_partition[m][j] = optim_partition[ix][j-1] + [ix] 
+#                     else:
+#                         optim_partition[m][j] = [ix]
+
+#             self.optim_KL = optim_KL
+#             self.optim_partition = optim_partition
+
+#         if self.m != None:
+
+#             FP_opt = len(nonkey_scores)
+            
+#             for num_group in range(self.num_group_min, self.num_group_max+1):
+#                 ### Determine the thresholds    
+#                 thresholds = np.zeros(num_group + 1)
+#                 thresholds[0] = -0.00001
+#                 thresholds[-1] = 1.00001
+#                 inter_thresholds_ix = self.optim_partition[-1][num_group-1]
+#                 inter_thresholds = score_partition[inter_thresholds_ix]
+#                 thresholds[1:-1] = inter_thresholds
+                
+
+#                 ### Count the keys of each group
+#                 count_nonkey = np.zeros(num_group)
+#                 count_key = np.zeros(num_group)
+
+#                 query_group = []
+#                 for j in range(num_group):
+#                     count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & (nonkey_scores < thresholds[j + 1]))
+#                     count_key[j] = sum((key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1]))
+
+#                     query_group.append(X_pos[(key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1])])
+
+
+#                 R = np.zeros(num_group)
+
+#                 alpha = 0.5 ** np.log(2)
+#                 c = self.m / self.n + (-self.optim_KL[-1][num_group-1] / np.log2(alpha))
+                
+#                 for j in range(num_group):
+#                     g_j = count_key[j] / self.n
+#                     h_j = count_nonkey[j] / len(X_neg_threshold_test)
+
+#                     R_j = count_key[j] * (np.log2(g_j/h_j)/np.log(alpha) + c)
+#                     R[j] = max(1, R_j)
+
+#                 #We need to fix the sizes to use all the available space
+#                 pos_sizes_mask = R > 0
+#                 used_bits = R[pos_sizes_mask].sum()
+#                 relative_sizes = R[pos_sizes_mask] / used_bits
+#                 extra_bits = self.m - used_bits
+
+#                 extra_sizes = relative_sizes * extra_bits
+#                 R[pos_sizes_mask] += extra_sizes
+
+#                 for j in range(len(R)):
+#                     R[j] = max(1, R[j])
+
+#                 backup_filters = []
+#                 for j in range(num_group):
+#                     if count_key[j]==0:
+#                         backup_filters.append(None)
+#                     else:
+#                         backup_filters.append( \
+#                             ClassicalBloomFilter(filter_class=self.classical_BF_class, 
+#                                         n=count_key[j], 
+#                                         m=R[j]))
+#                         for item in query_group[j]:
+#                             backup_filters[j].add(item)
+
+#                 FP_items = 0
+#                 for score, item in zip(nonkey_scores, X_neg_threshold_test):
+#                     ix = min(np.where(score < thresholds)[0]) - 1
+#                     if backup_filters[ix] is not None:
+#                         FP_items += int(backup_filters[ix].check(item))
+
+#                 FPR = FP_items/len(X_neg_threshold_test)
+
+#                 if FP_opt > FP_items:
+#                     num_group_opt = num_group
+#                     FP_opt = FP_items
+#                     backup_filters_opt = backup_filters
+#                     thresholds_opt = thresholds
+#                     if self.verbose:
+#                         print('False positive items: {}, FPR: {} Number of groups: {}'.format(FP_items, FPR, num_group))
+#                         print("optimal thresholds: ", thresholds_opt)
+
+#         elif self.epsilon != None:
+
+#             m_optimal = np.inf
+
+#             for num_group in range(self.num_group_min, self.num_group_max+1):
+
+#                 ### Determine the thresholds    
+#                 thresholds = np.zeros(num_group + 1)
+#                 thresholds[0] = -0.00001
+#                 thresholds[-1] = 1.00001
+#                 inter_thresholds_ix = self.optim_partition[-1][num_group-1]
+#                 inter_thresholds = score_partition[inter_thresholds_ix]
+#                 thresholds[1:-1] = inter_thresholds
+                
+
+#                 ### Count the keys of each group
+#                 count_nonkey = np.zeros(num_group)
+#                 count_key = np.zeros(num_group)
+
+#                 query_group = []
+#                 for j in range(num_group):
+#                     count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & \
+#                                           (nonkey_scores < thresholds[j + 1]))
+#                     count_key[j] = sum((key_scores >= thresholds[j]) & \
+#                                        (key_scores < thresholds[j + 1]))
+#                     query_group.append(X_pos[(key_scores >= thresholds[j]) & \
+#                                              (key_scores < thresholds[j + 1])])
+#                     g_sum = 0
+#                     h_sum = 0
+
+#                 f = np.zeros(num_group)
+
+#                 for i in range(num_group):
+#                     f[i] = self.epsilon * (count_key[i]/sum(count_key)) / \
+#                                  (count_nonkey[i]/sum(count_nonkey))
+
+#                 while sum(f > 1) > 0:
+#                     for i in range(num_group):
+#                         f[i] = min(1, f[i])
+
+#                     g_sum = 0
+#                     h_sum = 0
+
+#                     for i in range(num_group):
+#                         if f[i] == 1:
+#                             g_sum += count_key[i] / np.sum(count_key)
+#                             h_sum += count_nonkey[i] / np.sum(count_nonkey)
+                    
+#                     for i in range(num_group):
+#                         if f[i] < 1:
+
+#                             g_i = count_key[i]/sum(count_key)
+#                             h_i = count_nonkey[i]/sum(count_nonkey)
+#                             f[i] = g_i*(self.epsilon-h_sum) / (h_i*(1-g_sum))
+
+#                 m = 0
+#                 for i in range(num_group):
+#                     if f[i] < 1:
+#                         m += -count_key[i] * np.log(f[i]) / np.log(2)**2
+#                 if m < m_optimal:
+#                     m_optimal = m
+#                     f_optimal = f
+#                     num_group_opt = num_group
+#                     thresholds_opt = thresholds
+
+
+#             count_nonkey = np.zeros(num_group_opt)
+#             count_key = np.zeros(num_group_opt)
+#             query_group = []
+#             for j in range(num_group_opt):
+#                 count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & \
+#                                         (nonkey_scores < thresholds[j + 1]))
+#                 count_key[j] = sum((key_scores >= thresholds[j]) & \
+#                                     (key_scores < thresholds[j + 1]))
+#                 query_group.append(X_pos[(key_scores >= thresholds[j]) & \
+#                                             (key_scores < thresholds[j + 1])])
+
+#             backup_filters_opt = []
+#             for i in range(num_group_opt):
+#                 if f_optimal[i] < 1:
+#                     bf = ClassicalBloomFilter(filter_class=self.classical_BF_class, 
+#                                         n=count_key[i], 
+#                                         epsilon=f[i])
+#                     for key in query_group[i]:
+#                         bf.add(key)
+#                     backup_filters_opt.append(bf)
+#                 else:
+#                     backup_filters_opt.append(None)
+
+#         self.num_groups = num_group_opt
+#         self.thresholds_ = thresholds_opt
+#         self.backup_filters_ = backup_filters_opt
+#         self.is_fitted_ = True
+#         self.n_features_in_ = X.shape[1]
+
+#         return self
+
+#     def predict(self, X):
+#         """Computes predictions for a set of queries, each to be checked
+#         for inclusion in the Learned Bloom Filter.
+
+#         :param X: elements to classify.
+#         :type X: array of numerical arrays
+#         :return: prediction for each value in 'X'.
+#         :rtype: array of `bool`
+#         :raises: NotFittedError if the classifier is not fitted.
+
+#         NOTE: the implementation assumes that the classifier which is
+#         used (either pre-trained or trained in fit) refers to 1 as the
+#         label of keys in the Bloom filter
+#         """
+#         # TODO test that the assumption above is met for all classifiers
+#         # that have been tested.
+#         # TODO: rework after new classifier classes have been introduced
+
+#         check_is_fitted(self, 'is_fitted_')
+#         X = check_array(X)
+
+#         scores = np.array(self.classifier.predict_score(X))
+
+#         counts = [0] * self.num_groups
+
+#         for j in range(self.num_groups):
+#             counts[j] = sum((scores >= self.thresholds_[j]) & (scores < self.thresholds_[j + 1]))
+
+#         # predictions = scores > self.__thresholds[-1]
+#         # negative_sample = X[scores <= self.__thresholds[-1]]
+#         # negative_scores = scores[scores <= self.__thresholds[-1]]
+
+#         predictions = []
+#         for score, item in zip(scores, X):
+#             ix = min(np.where(score < self.thresholds_)[0]) - 1
+
+#             if self.backup_filters_[ix] is None:
+#                 predictions.append(True)
+#             else:
+#                 predictions.append(self.backup_filters_[ix].check(item))
+
+#         return np.array(predictions)
+
+#     def get_size(self):
+#         """Return the Partitioned Learned Bloom Filter size.
+
+#         :return: size of the Partitioned Learned Bloom Filter (in bits), detailed
+#             w.r.t. the size of the classifier and of the backup filters.
+#         :rtype: `dict`
+
+#         NOTE: the implementation assumes that the classifier object used to
+#         build the Learned Bloom Filter has a get_size method, returning the
+#         size of the classifier, measured in bits.
+#         """
+
+#         check_is_fitted(self, 'is_fitted_')
+
+#         return {'backup_filters': sum([bf.m for bf in  self.backup_filters_ if bf is not None]),
+#                 'classifier': self.classifier.get_size()}
