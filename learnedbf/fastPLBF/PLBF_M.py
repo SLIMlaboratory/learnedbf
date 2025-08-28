@@ -1,16 +1,17 @@
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from PLBFs.utils.ThresMaxDivDP import ThresMaxDivDP
-from PLBFs.utils.OptimalFPR_M import OptimalFPR_M
-from PLBFs.utils.SpaceUsed import SpaceUsed
-from PLBFs.utils.ExpectedFPR import ExpectedFPR
-from PLBFs.utils.prList import prList
-from PLBFs.utils.const import INF, EPS
+from fastPLBF.utils.ThresMaxDivDP import ThresMaxDivDP
+from fastPLBF.utils.OptimalFPR_M import OptimalFPR_M
+from fastPLBF.utils.SpaceUsed import SpaceUsed
+from fastPLBF.utils.ExpectedFPR import ExpectedFPR
+from fastPLBF.utils.prList import prList
+from fastPLBF.utils.const import INF, EPS
 
 import time
 import bisect
-from bloom_filter import BloomFilter
+# from bloom_filter import BloomFilter
+from learnedbf.BF.fast_plbf_bloom_filter_adapter import BloomFilter
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -52,7 +53,7 @@ class PLBF_M:
 
         segment_thre_list, g, h = self.divide_into_segments(pos_scores, neg_scores)
         self.find_best_t_and_f(segment_thre_list, g, h)
-        self.insert_keys(pos_keys, pos_scores)
+        self.insert_keys(pos_keys, pos_scores, neg_scores)
 
 
     def divide_into_segments(self, pos_scores: list[float], neg_scores: list[float]):
@@ -78,14 +79,21 @@ class PLBF_M:
 
         self.t = t_best
         self.f = f_best
+        self.minExpectedFPR = minExpectedFPR
         self.memory_usage_of_backup_bf = SpaceUsed(g, h, t, f, self.n)
 
-    def insert_keys(self, pos_keys: list, pos_scores: list[float]):
+    def insert_keys(self, pos_keys: list, pos_scores: list[float], neg_scores: list[float]):
+        _, g, _ = self.divide_into_segments(pos_scores, neg_scores)
+        k = len(self.t) - 1
         pos_cnt_list = [1 for _ in range(self.k + 1)]
-        for score in pos_scores:
-            region_idx = self.get_region_idx(score)
-            pos_cnt_list[region_idx] += 1
-        
+        for i in range(1, k+1):
+            pos_pr = g.acc_range(self.t[i-1], self.t[i])
+            pos_cnt_list[i] = pos_pr * self.n
+        # pos_cnt_list = [1 for _ in range(self.k + 1)]
+        # for score in pos_scores:
+        #     region_idx = self.get_region_idx(score)
+        #     pos_cnt_list[region_idx] += 1
+
 
         self.backup_bloom_filters = [None for _ in range(self.k + 1)]
         for i in range(1, self.k + 1):
