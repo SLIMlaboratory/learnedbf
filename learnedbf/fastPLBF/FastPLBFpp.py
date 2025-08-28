@@ -1,11 +1,11 @@
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from PLBFs.utils.ThresMaxDivDP import fastMaxDivDP, ThresMaxDiv
-from PLBFs.utils.OptimalFPR import OptimalFPR
-from PLBFs.utils.SpaceUsed import SpaceUsed
-from PLBFs.utils.const import INF
-from PLBFs.PLBF import PLBF
+from fastPLBF.utils.ThresMaxDivDP import fastMaxDivDP, ThresMaxDiv
+from fastPLBF.utils.OptimalFPR import OptimalFPR
+from fastPLBF.utils.SpaceUsed import SpaceUsed
+from fastPLBF.utils.const import INF
+from fastPLBF.PLBF import PLBF
 
 import time
 import argparse

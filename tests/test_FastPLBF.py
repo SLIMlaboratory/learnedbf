@@ -1,12 +1,11 @@
 import unittest
 import numpy as np
-from learnedbf import PLBF
+from learnedbf import FastPLBF
 from learnedbf.classifiers import ScoredRandomForestClassifier, ScoredMLP, \
     ScoredDecisionTreeClassifier, ScoredLinearSVC
 
 
-class TestPLBF(unittest.TestCase):
-
+class TestFastPLBF(unittest.TestCase):
     @classmethod
     def flip_bits(cls, bit_mask, prob=0.1):
         # mask = np.random.rand(bit_mask.shape[0]) > prob
@@ -27,15 +26,15 @@ class TestPLBF(unittest.TestCase):
 
     # def setUp(self):
         cls.filters = [
-            PLBF(
+            FastPLBF(
                 epsilon=0.01, N=200,
                 classifier=ScoredDecisionTreeClassifier()),
-            PLBF(
+            FastPLBF(
                 epsilon=0.01, N=200,
                 classifier=ScoredMLP(max_iter=100000, activation='logistic')),
-            PLBF(epsilon=0.01, N=200,
+            FastPLBF(epsilon=0.01, N=200,
                 classifier=ScoredRandomForestClassifier()),
-            # PLBF(epsilon=0.01, N=50,
+            # FastPLBF(epsilon=0.01, N=50,
             #     classifier=ScoredLinearSVC(max_iter=100_000, tol=0.1, C=.1))
         ]
 
@@ -53,16 +52,16 @@ class TestPLBF(unittest.TestCase):
             plbf.fit(cls.objects, cls.labels)
 
     def test_fit(self):
-        for plbf in TestPLBF.filters:
+        for plbf in TestFastPLBF.filters:
             assert plbf.is_fitted_
 
         
     def test_FN(self):
-        for plbf in TestPLBF.filters:
-            self.assertTrue(sum(plbf.predict(TestPLBF.objects[~TestPLBF.labels]) == 0))
+        for plbf in TestFastPLBF.filters:
+            self.assertTrue(sum(plbf.predict(TestFastPLBF.objects[~TestFastPLBF.labels]) == 0))
 
     def test_FP(self):
-        nonkeys = TestPLBF.objects[~TestPLBF.labels]
+        nonkeys = TestFastPLBF.objects[~TestFastPLBF.labels]
         for plbf in self.filters:
             fpr = plbf.estimate_FPR(nonkeys)
             self.assertAlmostEqual(fpr, 0.01, delta=0.01)
