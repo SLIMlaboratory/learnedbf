@@ -1,11 +1,11 @@
 import unittest
 import numpy as np
-from learnedbf import PLBF
+from learnedbf import FastPLBFpp
 from learnedbf.classifiers import ScoredRandomForestClassifier, ScoredMLP, \
     ScoredDecisionTreeClassifier, ScoredLinearSVC
 
 
-class TestPLBF_M(unittest.TestCase):
+class TestFastPLBFpp_M(unittest.TestCase):
 
     @classmethod
     def flip_bits(cls, bit_mask, prob=0.1):
@@ -27,13 +27,13 @@ class TestPLBF_M(unittest.TestCase):
     # def setUp(self):
         cls.target_M = 2000.
         cls.filters = [
-            PLBF(
+            FastPLBFpp(
                 m=cls.target_M, N=50,
                 classifier=ScoredDecisionTreeClassifier()),
-            PLBF(
+            FastPLBFpp(
                 m=cls.target_M, N=50,
                 classifier=ScoredMLP(max_iter=100000, activation='logistic')),
-            PLBF(m=cls.target_M, N=50,
+            FastPLBFpp(m=cls.target_M, N=50,
                 classifier=ScoredRandomForestClassifier()),
         ]
 
@@ -47,32 +47,30 @@ class TestPLBF_M(unittest.TestCase):
         cls.labels = np.concatenate((labels_f, labels_t))
         # print(f'generated {sum(cls.labels)} key and {sum(~cls.labels)} non-keys')
 
-        for plbf in cls.filters:
-            plbf.fit(cls.objects, cls.labels)
+        for fastplbf in cls.filters:
+            fastplbf.fit(cls.objects, cls.labels)
 
     def test_fit(self):
-        for plbf in TestPLBF_M.filters:
-            assert plbf.is_fitted_
+        for fastplbf in TestFastPLBFpp_M.filters:
+            assert fastplbf.is_fitted_
 
         
     def test_FN(self):
-        for plbf in TestPLBF_M.filters:
-            self.assertTrue(sum(plbf.predict(TestPLBF_M.objects[~TestPLBF_M.labels]) == 0))
+        for fastplbf in TestFastPLBFpp_M.filters:
+            self.assertTrue(sum(fastplbf.predict(TestFastPLBFpp_M.objects[~TestFastPLBFpp_M.labels]) == 0))
 
     def test_M(self):
-        nonkeys = TestPLBF_M.objects[~TestPLBF_M.labels]
-        for plbf in self.filters:
-            fpr = plbf.estimate_FPR(nonkeys)
-            m = plbf.splbf.memory_usage_of_backup_bf
+        nonkeys = TestFastPLBFpp_M.objects[~TestFastPLBFpp_M.labels]
+        for fastplbf in self.filters:
+            fpr = fastplbf.estimate_FPR(nonkeys)
+            m = fastplbf.splbf.memory_usage_of_backup_bf
             # print(f'size (from memory_usage_of_backup_bf): {m}')
             # print(f'FP rate: {fpr}')
-            self.assertAlmostEqual(m, TestPLBF_M.target_M, delta=10)
+            self.assertAlmostEqual(m, TestFastPLBFpp_M.target_M, delta=10)
 
-            m = plbf.get_size()['backup_filters']
+            m = fastplbf.get_size()['backup_filters']
             # print(f'size (from get_size): {m}')
-            self.assertAlmostEqual(m, TestPLBF_M.target_M, delta=10)
-
-        
+            self.assertAlmostEqual(m, TestFastPLBFpp_M.target_M, delta=10)
 
 if __name__ == '__main__':
     unittest.main()

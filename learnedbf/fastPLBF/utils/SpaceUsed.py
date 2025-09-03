@@ -26,7 +26,7 @@ def SpaceUsed(g: prList, h: prList, t: list[float], f: list[float], n: int) -> f
         fpr = f[i]
         hash_num = math.log(fpr) / math.log(0.5)
         m = hash_num * pos_num / math.log(2)
-        print(f'in SpaceUsed {i}th filter, m={m}, fpr={fpr}, estimated num keys {pos_num}')
+        # print(f'in SpaceUsed {i}th filter, m={m}, fpr={fpr}, estimated num keys {pos_num}')
         spaceUsed += m
 
     return spaceUsed

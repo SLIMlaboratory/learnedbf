@@ -22,7 +22,7 @@ class TestFastPLBFpp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         np.random.seed(42)
-        print('set the pseudo-random seed to 42')
+        # print('set the pseudo-random seed to 42')
 
     # def setUp(self):
         cls.filters = [
@@ -46,7 +46,7 @@ class TestFastPLBFpp(unittest.TestCase):
         labels_f = cls.flip_bits(np.array([False] * n_samples), Fn)
         labels_t = cls.flip_bits(np.array([True] * n_samples), Fp)
         cls.labels = np.concatenate((labels_f, labels_t))
-        print(f'generated {sum(cls.labels)} key and {sum(~cls.labels)} non-keys')
+        # print(f'generated {sum(cls.labels)} key and {sum(~cls.labels)} non-keys')
 
         for plbf in cls.filters:
             plbf.fit(cls.objects, cls.labels)

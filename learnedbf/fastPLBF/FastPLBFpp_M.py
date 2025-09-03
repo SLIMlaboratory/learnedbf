@@ -1,12 +1,12 @@
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from PLBFs.utils.ThresMaxDivDP import fastMaxDivDP, ThresMaxDiv
-from PLBFs.utils.OptimalFPR_M import OptimalFPR_M
-from PLBFs.utils.SpaceUsed import SpaceUsed
-from PLBFs.utils.ExpectedFPR import ExpectedFPR
-from PLBFs.utils.const import INF
-from PLBFs.PLBF_M import PLBF_M
+from fastPLBF.utils.ThresMaxDivDP import fastMaxDivDP, ThresMaxDiv
+from fastPLBF.utils.OptimalFPR_M import OptimalFPR_M
+from fastPLBF.utils.SpaceUsed import SpaceUsed
+from fastPLBF.utils.ExpectedFPR import ExpectedFPR
+from fastPLBF.utils.const import INF
+from fastPLBF.PLBF_M import PLBF_M
 
 import time
 import argparse
@@ -49,7 +49,7 @@ class FastPLBFpp_M(PLBF_M):
 
         segment_thre_list, g, h = self.divide_into_segments(pos_scores, neg_scores)
         self.find_best_t_and_f(segment_thre_list, g, h)
-        self.insert_keys(pos_keys, pos_scores)
+        self.insert_keys(pos_keys, pos_scores, neg_scores)
 
     def find_best_t_and_f(self, segment_thre_list, g, h):
         minExpectedFPR = INF
@@ -69,6 +69,7 @@ class FastPLBFpp_M(PLBF_M):
 
         self.t = t_best
         self.f = f_best
+        self.minExpectedFPR = minExpectedFPR
         self.memory_usage_of_backup_bf = SpaceUsed(g, h, t, f, self.n)
 
 

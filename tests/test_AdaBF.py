@@ -18,7 +18,7 @@ class TestAdaBF(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         np.random.seed(42)
-        print('set the pseudo-random seed to 42')
+        # print('set the pseudo-random seed to 42')
 
     def setUp(self):
         self.filters = [

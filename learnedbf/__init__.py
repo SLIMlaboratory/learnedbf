@@ -35,7 +35,9 @@ from learnedbf.classifiers import ScoredDecisionTreeClassifier
 from learnedbf.fastPLBF.PLBF import PLBF as SupportPLBF
 from learnedbf.fastPLBF.PLBF_M import PLBF_M as SupportPLBF_M
 from learnedbf.fastPLBF.FastPLBF import FastPLBF as SupportFastPLBF
+from learnedbf.fastPLBF.FastPLBF_M import FastPLBF_M as SupportFastPLBF_M
 from learnedbf.fastPLBF.FastPLBFpp import FastPLBFpp as SupportFastPLBFpp
+from learnedbf.fastPLBF.FastPLBFpp_M import FastPLBFpp_M as SupportFastPLBFpp_M
 
 # TODO: check the behavior when using non-integer keys
 # TODO: check what happens with the `classes_` attribute of classifiers
@@ -1526,88 +1528,11 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     f_optimal = f
                     num_group_opt = num_group
 
-            print(f'optimal group is {num_group_opt}')
-            print(f'num filters in f is {len(f_optimal.backup_bloom_filters)-1}')
-            print(f'f_optimal.t is {f_optimal.t}')
-            print(f'f_optimal.f is {f_optimal.f}')
+            # print(f'optimal group is {num_group_opt}')
+            # print(f'num filters in f is {len(f_optimal.backup_bloom_filters)-1}')
+            # print(f'f_optimal.t is {f_optimal.t}')
+            # print(f'f_optimal.f is {f_optimal.f}')
             self.splbf = f_optimal
-
-            # FP_opt = len(nonkey_scores)
-            
-            # for num_group in range(self.num_group_min, self.num_group_max+1):
-            #     ### Determine the thresholds    
-            #     thresholds = np.zeros(num_group + 1)
-            #     thresholds[0] = -0.00001
-            #     thresholds[-1] = 1.00001
-            #     inter_thresholds_ix = self.optim_partition[-1][num_group-1]
-            #     inter_thresholds = score_partition[inter_thresholds_ix]
-            #     thresholds[1:-1] = inter_thresholds
-                
-
-            #     ### Count the keys of each group
-            #     count_nonkey = np.zeros(num_group)
-            #     count_key = np.zeros(num_group)
-
-            #     query_group = []
-            #     for j in range(num_group):
-            #         count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & (nonkey_scores < thresholds[j + 1]))
-            #         count_key[j] = sum((key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1]))
-
-            #         query_group.append(X_pos[(key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1])])
-
-
-            #     R = np.zeros(num_group)
-
-            #     alpha = 0.5 ** np.log(2)
-            #     c = self.m / self.n + (-self.optim_KL[-1][num_group-1] / np.log2(alpha))
-                
-            #     for j in range(num_group):
-            #         g_j = count_key[j] / self.n
-            #         h_j = count_nonkey[j] / len(X_neg_threshold_test)
-
-            #         R_j = count_key[j] * (np.log2(g_j/h_j)/np.log(alpha) + c)
-            #         R[j] = max(1, R_j)
-
-            #     #We need to fix the sizes to use all the available space
-            #     pos_sizes_mask = R > 0
-            #     used_bits = R[pos_sizes_mask].sum()
-            #     relative_sizes = R[pos_sizes_mask] / used_bits
-            #     extra_bits = self.m - used_bits
-
-            #     extra_sizes = relative_sizes * extra_bits
-            #     R[pos_sizes_mask] += extra_sizes
-
-            #     for j in range(len(R)):
-            #         R[j] = max(1, R[j])
-
-            #     backup_filters = []
-            #     for j in range(num_group):
-            #         if count_key[j]==0:
-            #             backup_filters.append(None)
-            #         else:
-            #             backup_filters.append( \
-            #                 ClassicalBloomFilter(filter_class=self.classical_BF_class, 
-            #                             n=count_key[j], 
-            #                             m=R[j]))
-            #             for item in query_group[j]:
-            #                 backup_filters[j].add(item)
-
-            #     FP_items = 0
-            #     for score, item in zip(nonkey_scores, X_neg_threshold_test):
-            #         ix = min(np.where(score < thresholds)[0]) - 1
-            #         if backup_filters[ix] is not None:
-            #             FP_items += int(backup_filters[ix].check(item))
-
-            #     FPR = FP_items/len(X_neg_threshold_test)
-
-            #     if FP_opt > FP_items:
-            #         num_group_opt = num_group
-            #         FP_opt = FP_items
-            #         backup_filters_opt = backup_filters
-            #         thresholds_opt = thresholds
-            #         if self.verbose:
-            #             print('False positive items: {}, FPR: {} Number of groups: {}'.format(FP_items, FPR, num_group))
-            #             print("optimal thresholds: ", thresholds_opt)
 
         elif self.epsilon is not None:
             
@@ -1680,9 +1605,9 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         check_is_fitted(self, 'is_fitted_')
 
-        for i, bf in enumerate(self.splbf.backup_bloom_filters):
-            if bf is not None:
-                print(f'in get_size {i}th filter, size={bf.bloom_filter.bf_.get_size()}, fpr={bf.bloom_filter.bf_.epsilon}, n={bf.bloom_filter.bf_.n}')
+        # for i, bf in enumerate(self.splbf.backup_bloom_filters):
+        #     if bf is not None:
+        #         print(f'in get_size {i}th filter, size={bf.bloom_filter.bf_.get_size()}, fpr={bf.bloom_filter.bf_.epsilon}, n={bf.bloom_filter.bf_.n}')
 
         return {'backup_filters': sum([bf.get_size()
                   for bf in self.splbf.backup_bloom_filters if bf is not None]),
@@ -1940,83 +1865,105 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             self.optim_partition = optim_partition
 
         if self.m is not None:
+            eps_optimal = np.inf
 
-            FP_opt = len(nonkey_scores)
-            
             for num_group in range(self.num_group_min, self.num_group_max+1):
-                ### Determine the thresholds    
-                thresholds = np.zeros(num_group + 1)
-                thresholds[0] = -0.00001
-                thresholds[-1] = 1.00001
-                inter_thresholds_ix = self.optim_partition[-1][num_group-1]
-                inter_thresholds = score_partition[inter_thresholds_ix]
-                thresholds[1:-1] = inter_thresholds
-                
+                f = SupportFastPLBF_M(#X_pos.tolist(),
+                                [bytes(i) for i in X_pos],
+                                key_scores.tolist(),
+                                nonkey_scores.tolist(),
+                                self.m,
+                                self.N,
+                                num_group)
+                eps = f.minExpectedFPR
 
-                ### Count the keys of each group
-                count_nonkey = np.zeros(num_group)
-                count_key = np.zeros(num_group)
-
-                query_group = []
-                for j in range(num_group):
-                    count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & (nonkey_scores < thresholds[j + 1]))
-                    count_key[j] = sum((key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1]))
-
-                    query_group.append(X_pos[(key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1])])
-
-
-                R = np.zeros(num_group)
-
-                alpha = 0.5 ** np.log(2)
-                c = self.m / self.n + (-self.optim_KL[-1][num_group-1] / np.log2(alpha))
-                
-                for j in range(num_group):
-                    g_j = count_key[j] / self.n
-                    h_j = count_nonkey[j] / len(X_neg_threshold_test)
-
-                    R_j = count_key[j] * (np.log2(g_j/h_j)/np.log(alpha) + c)
-                    R[j] = max(1, R_j)
-
-                #We need to fix the sizes to use all the available space
-                pos_sizes_mask = R > 0
-                used_bits = R[pos_sizes_mask].sum()
-                relative_sizes = R[pos_sizes_mask] / used_bits
-                extra_bits = self.m - used_bits
-
-                extra_sizes = relative_sizes * extra_bits
-                R[pos_sizes_mask] += extra_sizes
-
-                for j in range(len(R)):
-                    R[j] = max(1, R[j])
-
-                backup_filters = []
-                for j in range(num_group):
-                    if count_key[j]==0:
-                        backup_filters.append(None)
-                    else:
-                        backup_filters.append( \
-                            ClassicalBloomFilter(filter_class=self.classical_BF_class, 
-                                        n=count_key[j], 
-                                        m=R[j]))
-                        for item in query_group[j]:
-                            backup_filters[j].add(item)
-
-                FP_items = 0
-                for score, item in zip(nonkey_scores, X_neg_threshold_test):
-                    ix = min(np.where(score < thresholds)[0]) - 1
-                    if backup_filters[ix] is not None:
-                        FP_items += int(backup_filters[ix].check(item))
-
-                FPR = FP_items/len(X_neg_threshold_test)
-
-                if FP_opt > FP_items:
+                if eps < eps_optimal:
+                    eps_optimal = eps
+                    f_optimal = f
                     num_group_opt = num_group
-                    FP_opt = FP_items
-                    backup_filters_opt = backup_filters
-                    thresholds_opt = thresholds
-                    if self.verbose:
-                        print('False positive items: {}, FPR: {} Number of groups: {}'.format(FP_items, FPR, num_group))
-                        print("optimal thresholds: ", thresholds_opt)
+
+            # print(f'optimal group is {num_group_opt}')
+            # print(f'num filters in f is {len(f_optimal.backup_bloom_filters)-1}')
+            # print(f'f_optimal.t is {f_optimal.t}')
+            # print(f'f_optimal.f is {f_optimal.f}')
+            self.splbf = f_optimal
+
+            # FP_opt = len(nonkey_scores)
+            
+            # for num_group in range(self.num_group_min, self.num_group_max+1):
+            #     ### Determine the thresholds    
+            #     thresholds = np.zeros(num_group + 1)
+            #     thresholds[0] = -0.00001
+            #     thresholds[-1] = 1.00001
+            #     inter_thresholds_ix = self.optim_partition[-1][num_group-1]
+            #     inter_thresholds = score_partition[inter_thresholds_ix]
+            #     thresholds[1:-1] = inter_thresholds
+                
+
+            #     ### Count the keys of each group
+            #     count_nonkey = np.zeros(num_group)
+            #     count_key = np.zeros(num_group)
+
+            #     query_group = []
+            #     for j in range(num_group):
+            #         count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & (nonkey_scores < thresholds[j + 1]))
+            #         count_key[j] = sum((key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1]))
+
+            #         query_group.append(X_pos[(key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1])])
+
+
+            #     R = np.zeros(num_group)
+
+            #     alpha = 0.5 ** np.log(2)
+            #     c = self.m / self.n + (-self.optim_KL[-1][num_group-1] / np.log2(alpha))
+                
+            #     for j in range(num_group):
+            #         g_j = count_key[j] / self.n
+            #         h_j = count_nonkey[j] / len(X_neg_threshold_test)
+
+            #         R_j = count_key[j] * (np.log2(g_j/h_j)/np.log(alpha) + c)
+            #         R[j] = max(1, R_j)
+
+            #     #We need to fix the sizes to use all the available space
+            #     pos_sizes_mask = R > 0
+            #     used_bits = R[pos_sizes_mask].sum()
+            #     relative_sizes = R[pos_sizes_mask] / used_bits
+            #     extra_bits = self.m - used_bits
+
+            #     extra_sizes = relative_sizes * extra_bits
+            #     R[pos_sizes_mask] += extra_sizes
+
+            #     for j in range(len(R)):
+            #         R[j] = max(1, R[j])
+
+            #     backup_filters = []
+            #     for j in range(num_group):
+            #         if count_key[j]==0:
+            #             backup_filters.append(None)
+            #         else:
+            #             backup_filters.append( \
+            #                 ClassicalBloomFilter(filter_class=self.classical_BF_class, 
+            #                             n=count_key[j], 
+            #                             m=R[j]))
+            #             for item in query_group[j]:
+            #                 backup_filters[j].add(item)
+
+            #     FP_items = 0
+            #     for score, item in zip(nonkey_scores, X_neg_threshold_test):
+            #         ix = min(np.where(score < thresholds)[0]) - 1
+            #         if backup_filters[ix] is not None:
+            #             FP_items += int(backup_filters[ix].check(item))
+
+            #     FPR = FP_items/len(X_neg_threshold_test)
+
+            #     if FP_opt > FP_items:
+            #         num_group_opt = num_group
+            #         FP_opt = FP_items
+            #         backup_filters_opt = backup_filters
+            #         thresholds_opt = thresholds
+            #         if self.verbose:
+            #             print('False positive items: {}, FPR: {} Number of groups: {}'.format(FP_items, FPR, num_group))
+            #             print("optimal thresholds: ", thresholds_opt)
 
         elif self.epsilon is not None:
             
@@ -2345,83 +2292,105 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
             self.optim_partition = optim_partition
 
         if self.m is not None:
+            eps_optimal = np.inf
 
-            FP_opt = len(nonkey_scores)
-            
             for num_group in range(self.num_group_min, self.num_group_max+1):
-                ### Determine the thresholds    
-                thresholds = np.zeros(num_group + 1)
-                thresholds[0] = -0.00001
-                thresholds[-1] = 1.00001
-                inter_thresholds_ix = self.optim_partition[-1][num_group-1]
-                inter_thresholds = score_partition[inter_thresholds_ix]
-                thresholds[1:-1] = inter_thresholds
-                
+                f = SupportFastPLBFpp_M(#X_pos.tolist(),
+                                [bytes(i) for i in X_pos],
+                                key_scores.tolist(),
+                                nonkey_scores.tolist(),
+                                self.m,
+                                self.N,
+                                num_group)
+                eps = f.minExpectedFPR
 
-                ### Count the keys of each group
-                count_nonkey = np.zeros(num_group)
-                count_key = np.zeros(num_group)
-
-                query_group = []
-                for j in range(num_group):
-                    count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & (nonkey_scores < thresholds[j + 1]))
-                    count_key[j] = sum((key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1]))
-
-                    query_group.append(X_pos[(key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1])])
-
-
-                R = np.zeros(num_group)
-
-                alpha = 0.5 ** np.log(2)
-                c = self.m / self.n + (-self.optim_KL[-1][num_group-1] / np.log2(alpha))
-                
-                for j in range(num_group):
-                    g_j = count_key[j] / self.n
-                    h_j = count_nonkey[j] / len(X_neg_threshold_test)
-
-                    R_j = count_key[j] * (np.log2(g_j/h_j)/np.log(alpha) + c)
-                    R[j] = max(1, R_j)
-
-                #We need to fix the sizes to use all the available space
-                pos_sizes_mask = R > 0
-                used_bits = R[pos_sizes_mask].sum()
-                relative_sizes = R[pos_sizes_mask] / used_bits
-                extra_bits = self.m - used_bits
-
-                extra_sizes = relative_sizes * extra_bits
-                R[pos_sizes_mask] += extra_sizes
-
-                for j in range(len(R)):
-                    R[j] = max(1, R[j])
-
-                backup_filters = []
-                for j in range(num_group):
-                    if count_key[j]==0:
-                        backup_filters.append(None)
-                    else:
-                        backup_filters.append( \
-                            ClassicalBloomFilter(filter_class=self.classical_BF_class, 
-                                        n=count_key[j], 
-                                        m=R[j]))
-                        for item in query_group[j]:
-                            backup_filters[j].add(item)
-
-                FP_items = 0
-                for score, item in zip(nonkey_scores, X_neg_threshold_test):
-                    ix = min(np.where(score < thresholds)[0]) - 1
-                    if backup_filters[ix] is not None:
-                        FP_items += int(backup_filters[ix].check(item))
-
-                FPR = FP_items/len(X_neg_threshold_test)
-
-                if FP_opt > FP_items:
+                if eps < eps_optimal:
+                    eps_optimal = eps
+                    f_optimal = f
                     num_group_opt = num_group
-                    FP_opt = FP_items
-                    backup_filters_opt = backup_filters
-                    thresholds_opt = thresholds
-                    if self.verbose:
-                        print('False positive items: {}, FPR: {} Number of groups: {}'.format(FP_items, FPR, num_group))
-                        print("optimal thresholds: ", thresholds_opt)
+
+            # print(f'optimal group is {num_group_opt}')
+            # print(f'num filters in f is {len(f_optimal.backup_bloom_filters)-1}')
+            # print(f'f_optimal.t is {f_optimal.t}')
+            # print(f'f_optimal.f is {f_optimal.f}')
+            self.splbf = f_optimal
+
+            # FP_opt = len(nonkey_scores)
+            
+            # for num_group in range(self.num_group_min, self.num_group_max+1):
+            #     ### Determine the thresholds    
+            #     thresholds = np.zeros(num_group + 1)
+            #     thresholds[0] = -0.00001
+            #     thresholds[-1] = 1.00001
+            #     inter_thresholds_ix = self.optim_partition[-1][num_group-1]
+            #     inter_thresholds = score_partition[inter_thresholds_ix]
+            #     thresholds[1:-1] = inter_thresholds
+                
+
+            #     ### Count the keys of each group
+            #     count_nonkey = np.zeros(num_group)
+            #     count_key = np.zeros(num_group)
+
+            #     query_group = []
+            #     for j in range(num_group):
+            #         count_nonkey[j] = sum((nonkey_scores >= thresholds[j]) & (nonkey_scores < thresholds[j + 1]))
+            #         count_key[j] = sum((key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1]))
+
+            #         query_group.append(X_pos[(key_scores >= thresholds[j]) & (key_scores < thresholds[j + 1])])
+
+
+            #     R = np.zeros(num_group)
+
+            #     alpha = 0.5 ** np.log(2)
+            #     c = self.m / self.n + (-self.optim_KL[-1][num_group-1] / np.log2(alpha))
+                
+            #     for j in range(num_group):
+            #         g_j = count_key[j] / self.n
+            #         h_j = count_nonkey[j] / len(X_neg_threshold_test)
+
+            #         R_j = count_key[j] * (np.log2(g_j/h_j)/np.log(alpha) + c)
+            #         R[j] = max(1, R_j)
+
+            #     #We need to fix the sizes to use all the available space
+            #     pos_sizes_mask = R > 0
+            #     used_bits = R[pos_sizes_mask].sum()
+            #     relative_sizes = R[pos_sizes_mask] / used_bits
+            #     extra_bits = self.m - used_bits
+
+            #     extra_sizes = relative_sizes * extra_bits
+            #     R[pos_sizes_mask] += extra_sizes
+
+            #     for j in range(len(R)):
+            #         R[j] = max(1, R[j])
+
+            #     backup_filters = []
+            #     for j in range(num_group):
+            #         if count_key[j]==0:
+            #             backup_filters.append(None)
+            #         else:
+            #             backup_filters.append( \
+            #                 ClassicalBloomFilter(filter_class=self.classical_BF_class, 
+            #                             n=count_key[j], 
+            #                             m=R[j]))
+            #             for item in query_group[j]:
+            #                 backup_filters[j].add(item)
+
+            #     FP_items = 0
+            #     for score, item in zip(nonkey_scores, X_neg_threshold_test):
+            #         ix = min(np.where(score < thresholds)[0]) - 1
+            #         if backup_filters[ix] is not None:
+            #             FP_items += int(backup_filters[ix].check(item))
+
+            #     FPR = FP_items/len(X_neg_threshold_test)
+
+            #     if FP_opt > FP_items:
+            #         num_group_opt = num_group
+            #         FP_opt = FP_items
+            #         backup_filters_opt = backup_filters
+            #         thresholds_opt = thresholds
+            #         if self.verbose:
+            #             print('False positive items: {}, FPR: {} Number of groups: {}'.format(FP_items, FPR, num_group))
+            #             print("optimal thresholds: ", thresholds_opt)
 
         elif self.epsilon is not None:
             
