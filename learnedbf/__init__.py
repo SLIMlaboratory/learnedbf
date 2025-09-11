@@ -110,6 +110,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
                  threshold=None,
                  classical_BF_class=ClassicalBloomFilterImpl,
                  backup_filter_size=None,
+                 min_backup_size=1E3,
                  random_state=4678913,
                  verbose=False):
         """Create an instance of :class:`LBF`.
@@ -151,6 +152,11 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :type threshold: `float`
         :param classical_BF_class: class of the backup filter, defaults
             to :class:`ClassicalBloomFilterImpl`.
+        :param min_backup_size: minimum dimension for backup filters (in bits:
+            if the classifier size is bigger than the allowed space `self.m` an
+            exception is thrown, if the remained space is less than this value,
+            a warning is emitted)
+        :type min_backup_size: int
         :param backup_filter_size: the size of the backup filter, defaults to `None`.
         :type backup_filter_size: `int`
         :param random_state: random seed value, defaults to `None`,
@@ -173,6 +179,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.threshold_evaluate = threshold_evaluate
         self.threshold = threshold
         self.classical_BF_class = classical_BF_class
+        self.min_backup_size = min_backup_size
         self.backup_filter_size = backup_filter_size
         self.random_state = random_state
         self.verbose = verbose
@@ -314,6 +321,14 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
             self.threshold = None
 
             if self.m is not None:
+                self.m -= self.classifier.get_size()
+                if self.m < 0:
+                    raise ValueError('The classifiers size exceeds the '
+                                     f'allowed space by {self.m} bits')
+                elif self.m < self.min_backup_size:
+                    print('warning: the available size for backup filters is'
+                          f' lower than {self.min_backup_size} (available: '
+                          f'{self.m} bits)')
                 epsilon = 1
                 self.backup_filter_size = self.m
                 for t in candidate_threshold:
@@ -497,6 +512,7 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                  scoring=auprc_score,
                  threshold_evaluate=threshold_evaluate,
                  classical_BF_class=ClassicalBloomFilterImpl,
+                 min_backup_size=1E3,
                  random_state=4678913,
                  verbose=False):
         """Create an instance of :class:`SLBF`.
@@ -537,6 +553,11 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :type threshold_evaluate: function
         :param classical_BF_class: class of the backup filter, defaults
             to :class:`ClassicalBloomFilterImpl`.
+        :param min_backup_size: minimum dimension for backup filters (in bits:
+            if the classifier size is bigger than the allowed space `self.m` an
+            exception is thrown, if the remained space is less than this value,
+            a warning is emitted)
+        :type min_backup_size: int
         :param random_state: random seed value, defaults to `None`,
             meaning the current seed value should be kept.
         :type random_state: `int` or `None`
@@ -556,6 +577,7 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.scoring = scoring
         self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
+        self.min_backup_size = min_backup_size
         self.random_state = random_state
         self.verbose = verbose
 
@@ -702,6 +724,14 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         if self.m is not None:
             #fixed bit array size: optimize epsilon
+            self.m -= self.classifier.get_size()
+            if self.m < 0:
+                raise ValueError('The classifiers size exceeds the '
+                                    f'allowed space by {self.m} bits')
+            elif self.m < self.min_backup_size:
+                print('warning: the available size for backup filters is'
+                          f' lower than {self.min_backup_size} (available: '
+                          f'{self.m} bits)')
 
             epsilon_lbf_optimal = 1
             epsilon_optimal = 1
@@ -947,6 +977,7 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
                  model_selection_method=StratifiedKFold(n_splits=5,
                                                         shuffle=True),
                  scoring=auprc_score,
+                 min_backup_size = 1E3,
                  backup_filter_size=None,
                  random_state=4678913,
                  c_min = 1.6,
@@ -984,6 +1015,11 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :param scoring: method to be used for scoring learnt
             classifiers, defaults to `auprc`.
         :type scoring: `str` or function
+        :param min_backup_size: minimum dimension for backup filters (in bits:
+            if the classifier size is bigger than the allowed space `self.m` an
+            exception is thrown, if the remained space is less than this value,
+            a warning is emitted)
+        :type min_backup_size: int
         :param backup_filter_size: the size of the backup filter, 
             defaults to `None`.
         :type backup_filter_size: `int`
@@ -1016,6 +1052,7 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.model_selection_method = model_selection_method
         self.scoring = scoring
         self.threshold_evaluate = threshold_evaluate
+        self.min_backup_size = min_backup_size
         self.backup_filter_size = backup_filter_size
         self.random_state = random_state
         self.c_min = c_min
@@ -1133,6 +1170,15 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
             gc.collect()
             self.classifier = model.best_estimator_
 
+        self.m -= self.classifier.get_size()
+        if self.m < 0:
+            raise ValueError('The classifiers size exceeds the '
+                                f'allowed space by {self.m} bits')
+        elif self.m < self.min_backup_size:
+            print('warning: the available size for backup filters is'
+                          f' lower than {self.min_backup_size} (available: '
+                          f'{self.m} bits)')
+
         c_set = np.arange(self.c_min, self.c_max+10**(-6), 0.1)
 
         X_neg = X[~y]
@@ -1144,57 +1190,70 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         FP_opt = len(nonkey_scores)
 
-        k_min = 0
-        for k_max in range(self.num_group_min, self.num_group_max+1):
-            for c in c_set:
-                tau = sum(c ** np.arange(0, k_max - k_min + 1, 1))
-                n = positive_sample.shape[0]
-                bloom_filter = VarhashBloomFilter(self.m, k_max)
-                thresholds = np.zeros(k_max - k_min + 1)
-                thresholds[-1] = 1.1
-                num_negative = sum(nonkey_scores <= thresholds[-1])
-                num_piece = int(num_negative / tau) + 1
-                score = nonkey_scores[nonkey_scores < thresholds[-1]]
-                score = np.sort(score)
-                for k in range(k_min, k_max):
-                    i = k - k_min
-                    score_1 = score[score < thresholds[-(i + 1)]]
-                    if int(num_piece * c ** i) < len(score_1):
-                        thresholds[-(i + 2)] = score_1[-int(num_piece * c ** i)]
-                query = positive_sample
-                score = key_scores
+        is_fit = False
+        while not is_fit:
+            k_min = 0
+            for k_max in range(self.num_group_min, self.num_group_max+1):
+                for c in c_set:
+                    tau = sum(c ** np.arange(0, k_max - k_min + 1, 1))
+                    n = positive_sample.shape[0]
+                    bloom_filter = VarhashBloomFilter(self.m, k_max)
+                    thresholds = np.zeros(k_max - k_min + 1)
+                    thresholds[-1] = 1.1
+                    num_negative = sum(nonkey_scores <= thresholds[-1])
+                    num_piece = int(num_negative / tau) + 1
+                    score = nonkey_scores[nonkey_scores < thresholds[-1]]
+                    score = np.sort(score)
+                    for k in range(k_min, k_max):
+                        i = k - k_min
+                        score_1 = score[score < thresholds[-(i + 1)]]
+                        if int(num_piece * c ** i) < len(score_1):
+                            thresholds[-(i + 2)] = score_1[-int(num_piece * c ** i)]
+                    query = positive_sample
+                    score = key_scores
 
-                my_count = 0
+                    for score_s, item_s in zip(score, query):
+                        ix = min(np.where(score_s < thresholds)[0])
+                        k = k_max - ix
+                        
+                        # print(f'!!!!!!!!!!!!!!!!! k={k}, k_min={k_min}, k_max={k_max}')
+                        # print(f'thresholds = {thresholds}')
+                        # print(f'score_s = {score_s}')
+                        # print(f'np.where: {np.where(score_s < thresholds)}')
+                        # #assert k > 0
+                        bloom_filter.add(item_s, k)
+                    
 
-                for score_s, item_s in zip(score, query):
-                    ix = min(np.where(score_s < thresholds)[0])
-                    k = k_max - ix
-                    if k > 0:
-                        my_count += 1
-                    bloom_filter.add(item_s, k)
-                
+                    ML_positive = negative_sample[nonkey_scores >= thresholds[-2]]
+                    query_negative = negative_sample[nonkey_scores < thresholds[-2]]
+                    score_negative = nonkey_scores[nonkey_scores < thresholds[-2]]
 
-                ML_positive = negative_sample[nonkey_scores >= thresholds[-2]]
-                query_negative = negative_sample[nonkey_scores < thresholds[-2]]
-                score_negative = nonkey_scores[nonkey_scores < thresholds[-2]]
+                    test_result = np.zeros(len(query_negative))
+                    ss = 0
 
-                test_result = np.zeros(len(query_negative))
-                ss = 0
+                    for score_s, item_s in zip(score_negative, query_negative):
+                        ix = min(np.where(score_s < thresholds)[0])
+                        k = k_max - ix
+                        test_result[ss] = bloom_filter.check(item_s, k)
+                        ss += 1
+                    FP_items = sum(test_result) + len(ML_positive)
+                    if self.verbose:
+                        print('False positive items: %d (%f), Number of groups: %d, c = %f' %(FP_items, FP_items / len(negative_sample), k_max, round(c, 2)))
 
-                for score_s, item_s in zip(score_negative, query_negative):
-                    ix = min(np.where(score_s < thresholds)[0])
-                    k = k_max - ix
-                    test_result[ss] = bloom_filter.check(item_s, k)
-                    ss += 1
-                FP_items = sum(test_result) + len(ML_positive)
-                if self.verbose:
-                    print('False positive items: %d (%f), Number of groups: %d, c = %f' %(FP_items, FP_items / len(negative_sample), k_max, round(c, 2)))
-
-                if FP_opt > FP_items:
-                    FP_opt = FP_items
-                    self.backup_filter_ = bloom_filter
-                    self.thresholds_ = thresholds
-                    self.num_group_ = k_max
+                    if FP_opt > FP_items:
+                        FP_opt = FP_items
+                        self.backup_filter_ = bloom_filter
+                        self.thresholds_ = thresholds
+                        self.num_group_ = k_max
+                        # print(f'thresholds {self.thresholds_}, num_group {self.num_group_}, FP_opt {FP_opt}')
+                        is_fit = True
+                if not is_fit:
+                    print('Warning: too many groups, automatically reducing the' \
+                        f'number of groups to [1, {self.num_group_min - 1 }]')
+                    
+                    self.num_group_max = self.num_group_min - 1
+                    self.num_group_min = 1
+                    break
 
         epsilon = FP_opt / len(negative_sample)
         if self.epsilon is not None and epsilon > self.epsilon:
@@ -1273,10 +1332,11 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                                                         shuffle=True),
                  scoring=auprc_score,
                  classical_BF_class=ClassicalBloomFilterImpl,
+                 min_backup_size = 1E3,
                  random_state=4678913,
                  num_group_min = 4,
                  num_group_max = 6,
-                 N=1000,
+                 N=50, # WAS 1000
                  verbose=False):
         """Create an instance of :class:`PLBF`.
 
@@ -1307,6 +1367,11 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :type scoring: `str` or function
         :param classical_BF_class: class of the backup filter, defaults
             to :class:`ClassicalBloomFilterImpl`.
+        :param min_backup_size: minimum dimension for backup filters (in bits:
+            if the classifier size is bigger than the allowed space `self.m` an
+            exception is thrown, if the remained space is less than this value,
+            a warning is emitted)
+        :type min_backup_size: int
         :param random_state: random seed value, defaults to `None`,
             meaning the current seed value should be kept.
         :type random_state: `int` or `None`
@@ -1331,6 +1396,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.scoring = scoring
         self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
+        self.min_backup_size = min_backup_size
         self.random_state = random_state
         self.num_group_min = num_group_min
         self.num_group_max = num_group_max
@@ -1510,6 +1576,14 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             self.optim_partition = optim_partition
 
         if self.m is not None:
+            self.m -= self.classifier.get_size()
+            if self.m < 0:
+                raise ValueError('The classifiers size exceeds the '
+                                    f'allowed space by {self.m} bits')
+            elif self.m < self.min_backup_size:
+                print('warning: the available size for backup filters is'
+                          f' lower than {self.min_backup_size} (available: '
+                          f'{self.m} bits)')
 
             eps_optimal = np.inf
 
@@ -1518,7 +1592,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                                 [bytes(i) for i in X_pos],
                                 key_scores.tolist(),
                                 nonkey_scores.tolist(),
-                                self.m,
+                                float(self.m),
                                 self.N,
                                 num_group)
                 eps = f.minExpectedFPR
@@ -1628,6 +1702,7 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                                                         shuffle=True),
                  scoring=auprc_score,
                  classical_BF_class=ClassicalBloomFilterImpl,
+                 min_backup_size = 1E3,
                  random_state=4678913,
                  num_group_min = 4,
                  num_group_max = 6,
@@ -1662,6 +1737,11 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :type scoring: `str` or function
         :param classical_BF_class: class of the backup filter, defaults
             to :class:`ClassicalBloomFilterImpl`.
+        :param min_backup_size: minimum dimension for backup filters (in bits:
+            if the classifier size is bigger than the allowed space `self.m` an
+            exception is thrown, if the remained space is less than this value,
+            a warning is emitted)
+        :type min_backup_size: int
         :param random_state: random seed value, defaults to `None`,
             meaning the current seed value should be kept.
         :type random_state: `int` or `None`
@@ -1686,6 +1766,7 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.scoring = scoring
         self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
+        self.min_backup_size = min_backup_size
         self.random_state = random_state
         self.num_group_min = num_group_min
         self.num_group_max = num_group_max
@@ -1865,6 +1946,15 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             self.optim_partition = optim_partition
 
         if self.m is not None:
+            self.m -= self.classifier.get_size()
+            if self.m < 0:
+                raise ValueError('The classifiers size exceeds the '
+                                    f'allowed space by {self.m} bits')
+            elif self.m < self.min_backup_size:
+                print('warning: the available size for backup filters is'
+                          f' lower than {self.min_backup_size} (available: '
+                          f'{self.m} bits)')
+                            
             eps_optimal = np.inf
 
             for num_group in range(self.num_group_min, self.num_group_max+1):
@@ -1872,7 +1962,7 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                                 [bytes(i) for i in X_pos],
                                 key_scores.tolist(),
                                 nonkey_scores.tolist(),
-                                self.m,
+                                float(self.m),
                                 self.N,
                                 num_group)
                 eps = f.minExpectedFPR
@@ -1978,6 +2068,7 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
                                                         shuffle=True),
                  scoring=auprc_score,
                  classical_BF_class=ClassicalBloomFilterImpl,
+                 min_backup_size=1E3,
                  random_state=4678913,
                  num_group_min = 4,
                  num_group_max = 6,
@@ -2012,6 +2103,11 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
         :type scoring: `str` or function
         :param classical_BF_class: class of the backup filter, defaults
             to :class:`ClassicalBloomFilterImpl`.
+        :param min_backup_size: minimum dimension for backup filters (in bits:
+            if the classifier size is bigger than the allowed space `self.m` an
+            exception is thrown, if the remained space is less than this value,
+            a warning is emitted)
+        :type min_backup_size: int
         :param random_state: random seed value, defaults to `None`,
             meaning the current seed value should be kept.
         :type random_state: `int` or `None`
@@ -2036,6 +2132,7 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
         self.scoring = scoring
         self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
+        self.min_backup_size = min_backup_size
         self.random_state = random_state
         self.num_group_min = num_group_min
         self.num_group_max = num_group_max
@@ -2215,6 +2312,15 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
             self.optim_partition = optim_partition
 
         if self.m is not None:
+            self.m -= self.classifier.get_size()
+            if self.m < 0:
+                raise ValueError('The classifiers size exceeds the '
+                                    f'allowed space by {self.m} bits')
+            elif self.m < self.min_backup_size:
+                print('warning: the available size for backup filters is'
+                          f' lower than {self.min_backup_size} (available: '
+                          f'{self.m} bits)')
+                            
             eps_optimal = np.inf
 
             for num_group in range(self.num_group_min, self.num_group_max+1):
@@ -2222,7 +2328,7 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
                                 [bytes(i) for i in X_pos],
                                 key_scores.tolist(),
                                 nonkey_scores.tolist(),
-                                self.m,
+                                float(self.m),
                                 self.N,
                                 num_group)
                 eps = f.minExpectedFPR
