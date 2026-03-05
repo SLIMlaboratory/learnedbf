@@ -167,10 +167,11 @@ class ClassicalBloomFilterImpl():
         '''
         Add an item in the filter
         '''
+        item_bytes = item if isinstance(item, bytes) else item.tobytes()
         digests = []
         for i in range(self.k):
             # i works as seed to mmh3.hash() function
-            digest = mmh3.hash(item.tobytes(), i) % self.m
+            digest = mmh3.hash(item_bytes, i) % self.m
             digests.append(digest)
 
             # set the bit True in bit_array
@@ -180,8 +181,9 @@ class ClassicalBloomFilterImpl():
         '''
         Check for existence of an item in filter
         '''
+        item_bytes = item if isinstance(item, bytes) else item.tobytes()
         for i in range(self.k):
-            digest = mmh3.hash(item.tobytes(), i) % self.m
+            digest = mmh3.hash(item_bytes, i) % self.m
             if not self.bit_array[digest]:
                 # if any of bit is False then,its not present
                 # in filter

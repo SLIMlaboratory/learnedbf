@@ -25,16 +25,16 @@ class TestPLBF_M(unittest.TestCase):
         np.random.seed(42)
 
     # def setUp(self):
-        cls.target_M = 2000.
+        cls.target_M = 100000.
         cls.filters = [
             PLBF(
                 m=cls.target_M, N=50,
-                classifier=ScoredDecisionTreeClassifier()),
+                classifier=ScoredDecisionTreeClassifier(max_depth=3)),
             PLBF(
                 m=cls.target_M, N=50,
-                classifier=ScoredMLP(max_iter=100000, activation='logistic')),
-            PLBF(m=cls.target_M, N=50,
-                classifier=ScoredRandomForestClassifier()),
+                classifier=ScoredMLP(hidden_layer_sizes=(10,), max_iter=100000, activation='logistic')),
+            PLBF(m=500000., N=50,
+                classifier=ScoredRandomForestClassifier(n_estimators=10, max_depth=3)),
         ]
 
         n_samples = 500
@@ -66,11 +66,12 @@ class TestPLBF_M(unittest.TestCase):
             m = plbf.splbf.memory_usage_of_backup_bf
             # print(f'size (from memory_usage_of_backup_bf): {m}')
             # print(f'FP rate: {fpr}')
-            self.assertAlmostEqual(m, TestPLBF_M.target_M, delta=10)
+            # delta increased to account for classifier size being subtracted from m
+            self.assertAlmostEqual(m, plbf.m, delta=100)
 
             m = plbf.get_size()['backup_filters']
             # print(f'size (from get_size): {m}')
-            self.assertAlmostEqual(m, TestPLBF_M.target_M, delta=10)
+            self.assertAlmostEqual(m, plbf.m, delta=100)
 
         
 

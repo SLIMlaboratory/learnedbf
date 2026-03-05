@@ -23,14 +23,14 @@ class TestAdaBF(unittest.TestCase):
     def setUp(self):
         self.filters = [
             AdaBF(
-                m=100, 
-                classifier=ScoredDecisionTreeClassifier()),
+                m=100000, 
+                classifier=ScoredDecisionTreeClassifier(max_depth=3)),
             AdaBF(
-                m=100, 
-                classifier=ScoredMLP(max_iter=100000, activation='logistic')),
-            AdaBF(m=100, 
-                classifier=ScoredRandomForestClassifier()),
-            AdaBF(m=100, 
+                m=100000, 
+                classifier=ScoredMLP(hidden_layer_sizes=(10,), max_iter=100000, activation='logistic')),
+            AdaBF(m=500000, 
+                classifier=ScoredRandomForestClassifier(n_estimators=10, max_depth=3)),
+            AdaBF(m=100000, 
                 classifier=ScoredLinearSVC(max_iter=100000, tol=0.1, C=0.1))
         ]
 

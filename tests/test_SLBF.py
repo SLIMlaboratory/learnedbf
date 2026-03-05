@@ -31,14 +31,14 @@ class TestSanswichedLearnedBloomFilter(unittest.TestCase):
             SLBF(epsilon=0.1, 
                 classifier=ScoredLinearSVC(max_iter=100000, tol=0.1, C=0.1)),
             SLBF(
-                m=100, 
-                classifier=ScoredDecisionTreeClassifier()),
+                m=100000, 
+                classifier=ScoredDecisionTreeClassifier(max_depth=3)),
             SLBF(
-                m=100, 
-                classifier=ScoredMLP(max_iter=100000, activation='logistic')),
-            SLBF(m=100, 
-                classifier=ScoredRandomForestClassifier()),
-            SLBF(m=100, 
+                m=100000, 
+                classifier=ScoredMLP(hidden_layer_sizes=(10,), max_iter=100000, activation='logistic')),
+            SLBF(m=500000, 
+                classifier=ScoredRandomForestClassifier(n_estimators=10, max_depth=3)),
+            SLBF(m=100000, 
                 classifier=ScoredLinearSVC(max_iter=100000, tol=0.1, C=0.1))
         ]
 

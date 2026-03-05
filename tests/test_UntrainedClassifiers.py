@@ -13,9 +13,9 @@ class TestLBF2(unittest.TestCase):
             LBF(classifier=ScoredDecisionTreeClassifier(), epsilon=0.1),
             LBF(classifier=ScoredMLP(max_iter=100000), epsilon=0.1),
             LBF(classifier=ScoredRandomForestClassifier(), epsilon=0.1),
-            LBF(classifier=ScoredDecisionTreeClassifier(), m=1000),
-            LBF(classifier=ScoredMLP(max_iter=100000), m=1000),
-            LBF(classifier=ScoredRandomForestClassifier(), m=1000)
+            LBF(classifier=ScoredDecisionTreeClassifier(max_depth=3), m=100000),
+            LBF(classifier=ScoredMLP(hidden_layer_sizes=(10,), max_iter=100000), m=100000),
+            LBF(classifier=ScoredRandomForestClassifier(n_estimators=10, max_depth=3), m=500000)
         ]
 
         # self.n = 100
