@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath('..'))
 project = 'learnedbf'
 copyright = '2025, SLIM laboratory'
 author = 'SLIM laboratory'
-release = '0.6.2'
+release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
