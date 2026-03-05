@@ -1,18 +1,3 @@
-# TODO
-# is it necessary to adapt FastPLBF code to using our BF implementation?
-# Specify that PLBF and FastPLBF are taken from
-# https://github.com/atsukisato/FastPLBF/tree/main
-# add a third_party_licenses.txt file with contents
-# as in this template:
-# This project includes code licensed under the MIT License:
-
-# <Nome del pacchetto o file>
-# Copyright (c) <Anno> <Nome autore>
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy...
-# [include tutta la licenza MIT qui]
-
-
 
 import abc
 import gc
@@ -43,7 +28,7 @@ from learnedbf.fastPLBF.FastPLBFpp_M import FastPLBFpp_M as SupportFastPLBFpp_M
 # TODO: check what happens with the `classes_` attribute of classifiers
 #       not based on trees
 
-__version__ = '0.6.2'
+__version__ = '1.0.0'
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
