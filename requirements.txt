@@ -8,43 +8,48 @@ alabaster==0.7.16
     # via sphinx
 babel==2.17.0
     # via sphinx
-bitarray==3.0.0
+bitarray==3.4.2
     # via pybloom-live
 certifi==2025.4.26
     # via requests
 charset-normalizer==3.4.2
     # via requests
-cycler==0.11.0
+contourpy==1.3.0
+    # via matplotlib
+cycler==0.12.1
     # via matplotlib
 docutils==0.21.2
     # via
     #   sphinx
     #   sphinx-rtd-theme
-fonttools==4.38.0
+fonttools==4.58.1
     # via matplotlib
 idna==3.10
     # via requests
-igraph==0.10.8
+igraph==0.11.8
     # via problexity
 imagesize==1.4.1
     # via sphinx
 importlib-metadata==8.7.0
     # via sphinx
+importlib-resources==6.5.2
+    # via matplotlib
 jinja2==3.1.6
     # via sphinx
-joblib==1.3.2
+joblib==1.5.1
     # via scikit-learn
-kiwisolver==1.4.5
+kiwisolver==1.4.7
     # via matplotlib
 markupsafe==3.0.2
     # via jinja2
-matplotlib==3.5.3
+matplotlib==3.9.4
     # via problexity
-mmh3==3.0.0
+mmh3==5.1.0
     # via -r requirements.in
-numpy==1.22.4
+numpy==2.0.2
     # via
     #   -r requirements.in
+    #   contourpy
     #   matplotlib
     #   pandas
     #   problexity
@@ -57,29 +62,29 @@ packaging==25.0
     #   sphinx
 pandas==2.2.3
     # via problexity
-pillow==9.5.0
+pillow==11.2.1
     # via matplotlib
-problexity==0.5.8
+problexity==0.5.9
     # via -r requirements.in
 pybloom-live==4.0.0
     # via -r requirements.in
 pygments==2.19.1
     # via sphinx
-pyparsing==3.1.4
+pyparsing==3.2.3
     # via matplotlib
 python-dateutil==2.9.0.post0
     # via
     #   matplotlib
     #   pandas
-pytz==2024.2
+pytz==2025.2
     # via pandas
 requests==2.32.3
     # via sphinx
-scikit-learn==1.0.2
+scikit-learn==1.6.1
     # via
     #   -r requirements.in
     #   problexity
-scipy==1.7.3
+scipy==1.13.1
     # via
     #   problexity
     #   scikit-learn
@@ -110,7 +115,7 @@ sphinxcontrib-serializinghtml==2.0.0
     # via sphinx
 texttable==1.7.0
     # via igraph
-threadpoolctl==3.1.0
+threadpoolctl==3.6.0
     # via scikit-learn
 tomli==2.2.1
     # via sphinx
@@ -121,4 +126,6 @@ urllib3==2.4.0
 xxhash==3.5.0
     # via pybloom-live
 zipp==3.22.0
-    # via importlib-metadata
+    # via
+    #   importlib-metadata
+    #   importlib-resources
