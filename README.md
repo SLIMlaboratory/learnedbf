@@ -159,10 +159,10 @@ FPR:0.009
 
 ## License
 
-[Apache 2.0](https://github.com/SLIMlaboratory/learnedbf/blob/master/LICENSE).
-
-This project includes portions of code from FastPLBF
-(https://github.com/atsukisato/FastPLBF), licensed under the MIT License.
+The library is distributed under the
+[Apache 2.0](https://github.com/SLIMlaboratory/learnedbf/blob/master/LICENSE)
+license. This project includes portions of code from
+[FastPLBF] (https://github.com/atsukisato/FastPLBF), under the MIT License.
 See THIRD_PARTY_LICENSES for details.
 
 

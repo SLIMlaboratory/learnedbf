@@ -1,5 +1,3 @@
-THIRD_PARTY_LICENSES.txt
-
 This project includes third-party software components that are distributed
 under separate open source licenses. Those components are identified below.
 
@@ -11,8 +9,6 @@ License: MIT License
 
 This project incorporates portions of the FastPLBF source code.
 The included portions are licensed under the MIT License.
-
-MIT License
 
 Copyright (c) 2023 atsukisato
 
