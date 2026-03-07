@@ -23,6 +23,8 @@ please refer to the [documentation](https://learned.readthedocs.io/en/latest/).
 
 ## Installation
 
+The package is available on pypi:
+
 ```shell
 pip install learnedbf
 ```
@@ -129,9 +131,6 @@ The following code builds a LBF backed by a multi-layer perceptron, now training
 the latter on the provided data.
 
 ```pycon
->>> filter = lbf.LBF(epsilon=0.01, classifier=mlp, threshold_test_size = 0.2)
->>> filter.fit(X_build, y_build)
-LBF(epsilon=0.01, classifier=ScoredMLP(), threshold=0.7520010828581488)
 >>> mlp = ScoredMLP()
 >>> filter = lbf.LBF(epsilon=0.01, classifier=mlp, threshold_test_size=0.2)
 >>> filter.fit(X_build, y_build)
@@ -144,9 +143,6 @@ The following code repeats the previous operation, now also performing a model
 selection on the learning rate of the multi-layer perceptron.
 
 ```pycon
->>> filter = lbf.LBF(epsilon=0.01, classifier=mlp, threshold_test_size = 0.2)
->>> filter.fit(X_build, y_build)
->>> 
 >>> mlp = ScoredMLP()
 >>> filter = lbf.LBF(epsilon=0.01, classifier=mlp,
 ...                  threshold_test_size=0.2,
