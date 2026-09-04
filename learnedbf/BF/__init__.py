@@ -1,4 +1,5 @@
 import abc
+import json
 import logging
 from random import randint
 import mmh3
@@ -84,7 +85,7 @@ class BloomFilter:
         self.n = n
         self.epsilon = epsilon
 
-    @abc.abstractclassmethod
+    @abc.abstractmethod
     def fit(self, X, y=None):
         """Build the Bloom Filter. Abstract method implemented in
         subclasses.
@@ -92,7 +93,7 @@ class BloomFilter:
 
         return
 
-    @abc.abstractclassmethod
+    @abc.abstractmethod
     def predict(self, X):
         """Computes predictions for a set of queries, each to be checked
         for inclusion in the Bloom Filter. Abstract method implemented
@@ -129,13 +130,53 @@ class BloomFilter:
 
         return self.predict(X).sum() / len(X)
 
-    @abc.abstractclassmethod
+    @abc.abstractmethod
     def get_size(self):
         """Return the Bloom Filter size (in bits). Abstract method implemented in
         subclasses.
         """
 
         return
+
+    @abc.abstractmethod
+    def to_json(self, force=False):
+        """Export the filter to a JSON representation.
+
+        :param force: if True, the export will be forced even if the size of
+                        the filter is too large.
+        :type force: bool
+        """
+        return
+    
+    def export(self, path):
+        """Export the filter to a file.
+
+        :param path: path to the file where the filter will be exported.
+        :type path: str
+        """
+        with open(path, 'w') as f:
+            json.dump(self.to_json(), f)
+    
+    @abc.abstractmethod
+    def from_json(self, repr):
+        """Import the filter from a JSON representation.
+
+        :param repr: JSON representation of the filter.
+        :type repr: dict
+        """
+        return
+    
+    def import_(self, path):
+        """Import the filter from a file.
+
+        :param path: path to the file where the filter will be imported
+                     from.
+        :type path: str
+        """
+        with open(path, 'r') as f:
+            repr = json.load(f)
+
+        self.from_json(repr)
 
 
 
@@ -519,4 +560,62 @@ class ClassicalBloomFilter(BloomFilter, BaseEstimator, ClassifierMixin):
         """
 
         return self.bf_.get_size()
+    
+    def to_json(self):
+        """Return a JSON representation of the Bloom Filter.
+
+        :return: dictionary containing the JSON representation of the
+            Bloom Filter.
+        :rtype: `dict`
+        """
+
+        check_is_fitted(self, 'is_fitted_')
+        repr = {}
+        repr['n'] = self.n
+        repr['epsilon'] = self.epsilon
+        repr['m'] = self.m
+        repr['filter_class'] = self.filter_class.__name__
+        repr['bitmap'] = self.bf_.bit_array.tolist()
+        repr['is_fitted_'] = self.is_fitted_
+        
+        return repr
+    
+    def from_json(self, repr):
+        """Load a Bloom Filter from its JSON representation.
+
+        :param repr: dictionary containing the JSON representation of the
+            Bloom Filter.
+        :type repr: `dict`
+        """
+
+        self.n = repr['n']
+        self.epsilon = repr['epsilon']
+        self.m = repr['m']
+        self.filter_class = globals()[repr['filter_class']]
+        self.bf_ = self.filter_class(self.n, self.epsilon)
+        self.bf_.bit_array = bitarray(repr['bitmap'])
+        self.is_fitted_ = repr['is_fitted_']
+
+    def __eq__(self, other):
+        if not isinstance(other, ClassicalBloomFilter):
+            return NotImplemented
+
+        if self.get_params(deep=False) != other.get_params(deep=False):
+            return False
+
+        self_fitted = (hasattr(self, "bf_")
+                       and hasattr(self.bf_, "bit_array"))
+        other_fitted = (hasattr(other, "bf_")
+                        and hasattr(other.bf_, "bit_array"))
+
+        if self_fitted != other_fitted:
+            return False
+
+        if self.n != other.n or self.epsilon != other.epsilon or self.m != other.m:
+            return False
+
+        if self_fitted and other_fitted:
+            return self.bf_.bit_array == other.bf_.bit_array
+
+        return True
 

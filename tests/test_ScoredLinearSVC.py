@@ -124,6 +124,27 @@ class TestScoredLinearSVC(unittest.TestCase):
                 self.assertTrue(sum(lbf.get_size().values()) == lbf_size)
 
                 self.assertTrue(scl.get_size() == lbf.classifier.get_size())
+
+    def test_export(self):
+        n = 10
+
+        for dim in [1, 3, 5, 10, 35]:
+            np.random.seed(seed=42)
+            objects = np.random.random(size=(n, dim))
+
+            # we force the dataset to be linearly separable in the first dimension
+            objects[:, 0] = np.arange(0, n)
+            labels = [False] * 4 +  [True] * 6
+
+            scl = ScoredLinearSVC(random_state=522812,
+                                    max_iter=100000, tol=0.1, C=0.1)
+            scl.fit(objects, labels)
+            scl_repr = scl.to_json()
+            scl2 = ScoredLinearSVC().from_json(scl_repr)
+
+            self.assertTrue(scl_repr == scl2.to_json())
+            self.assertTrue(scl == scl2)
+  
  
 
 

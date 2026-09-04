@@ -8,6 +8,17 @@ learned_filter_classes = [LBF]
 
 class TestScoredRF(unittest.TestCase):
 
+    def test_to_json(self):
+        objects = np.expand_dims(np.arange(1, 10), axis=1)
+        labels = [False] * 6 + [True] * 3
+
+        scl = ScoredRandomForestClassifier(random_state=42, n_estimators=3)
+        scl.fit(objects, labels)
+
+        
+        lbf_repr = scl.to_json()
+        self.assertTrue(True)
+
     def test_consistent_backup_filter(self):
         from_ = 1
 

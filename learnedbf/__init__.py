@@ -1,6 +1,7 @@
 
 import abc
 import gc
+import json
 import logging
 import math
 import numpy as np
@@ -23,6 +24,7 @@ from learnedbf.fastPLBF.FastPLBF import FastPLBF as SupportFastPLBF
 from learnedbf.fastPLBF.FastPLBF_M import FastPLBF_M as SupportFastPLBF_M
 from learnedbf.fastPLBF.FastPLBFpp import FastPLBFpp as SupportFastPLBFpp
 from learnedbf.fastPLBF.FastPLBFpp_M import FastPLBFpp_M as SupportFastPLBFpp_M
+import learnedbf.classifiers as clf
 
 # TODO: check the behavior when using non-integer keys
 # TODO: check what happens with the `classes_` attribute of classifiers
@@ -480,6 +482,32 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
                              if self.backup_filter_ is not None else 0
         return {'backup_filter': backup_filter_size,
                 'classifier': self.classifier.get_size()}
+    
+    def to_json(self):
+        check_is_fitted(self, 'is_fitted_')
+        repr = {}
+        # backup filter is None if the classifier has no false negatives
+        repr['backup_filter'] = self.backup_filter_.to_json() \
+                                if self.backup_filter_ is not None else None
+        repr['classifier'] = self.classifier.to_json()
+        repr['threshold'] = self.threshold
+        repr['classifier_class'] = self.classifier.__class__.__name__
+
+        return repr
+    
+    def from_json(self, repr):
+        if repr['backup_filter'] is not None:
+            # n and epsilon are needed in order to build the filter
+            self.backup_filter_ = ClassicalBloomFilter(n=10, epsilon=0.1)
+            self.backup_filter_.from_json(repr['backup_filter'])
+        else:
+            self.backup_filter_ = None
+
+        self.classifier = getattr(clf, repr['classifier_class'])()
+        self.classifier.from_json(repr['classifier'])
+        
+        self.threshold = repr['threshold']
+        self.is_fitted_ = True
 
 class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
     """Implementation of the Sandwiched Learned Bloom Filter"""
@@ -948,6 +976,47 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return {'backup_filter': backup_filter_size,
                 'initial_filter': initial_filter_size,
                 'classifier': self.lbf_.classifier.get_size()}
+    
+    def to_json(self):
+    
+        repr = {}
+        repr['initial_filter'] = self.initial_filter_.to_json() \
+                                if self.initial_filter_ is not None else None
+        repr['lbf'] = self.lbf_.to_json() \
+                      if self.lbf_ is not None else None
+        return repr
+    
+    def from_json(self, repr):
+        if repr['initial_filter'] is not None:
+            self.initial_filter_ = BloomFilter()
+            self.initial_filter_.from_json(repr['initial_filter'])
+        else:
+            self.initial_filter_ = None
+
+        if repr['lbf'] is not None:
+            self.lbf_ = LBF()
+            self.lbf_.from_json(repr['lbf'])
+        else:
+            self.lbf_ = None
+
+
+
+
+
+def to_json(self):
+    
+        repr = {}
+        repr['backup_filter'] = self.backup_filter_.to_json() \
+                                if self.backup_filter_ is not None else None
+        repr['classifier'] = self.classifier.to_json() \
+                                if self.classifier is not None else None
+        repr['threshold'] = self.threshold \
+                            if self.threshold is not None else None
+        repr['classifier_class'] = self.classifier.__class__.__name__ \
+                            if self.classifier is not None else None
+
+        return repr
+
     
 class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
     """Implementation of the Adaptive Learned Bloom Filter"""

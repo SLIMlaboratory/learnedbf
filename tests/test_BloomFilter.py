@@ -79,5 +79,20 @@ class TestPybloomliveClassicalClassicalBloomFilter(unittest.TestCase):
             ClassicalBloomFilter(1, 1, 1)
             ClassicalBloomFilter()
 
+    def test_export(self):
+        for num_keys in np.logspace(1, 5, 5).astype(int):
+            for epsilon in (0.01, 0.05, 0.1, 0.2):
+                X = np.random.randint(0, 1_000_000, size=(num_keys, 1))
+                bf = ClassicalBloomFilter(n=num_keys,
+                                 epsilon=epsilon)
+                bf.fit(X)
+
+                bf_repr = bf.to_json()
+                bf2 = ClassicalBloomFilter(n=23, epsilon=0.13)
+                bf2.from_json(bf_repr)
+
+                self.assertTrue(bf_repr == bf2.to_json())
+                self.assertTrue(bf == bf2)
+
 if __name__ == '__main__':
     unittest.main()

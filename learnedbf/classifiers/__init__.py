@@ -1,7 +1,9 @@
 
 import abc
+import json
 import numpy as np
 
+import sklearn
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPRegressor
 from sklearn.svm import LinearSVC
@@ -27,6 +29,89 @@ def get_tree_size(tree, float_size=64, int_size=32):
             + num_inner_nodes * (int_size * 3 + float_size)
     return space
 
+def _json_safe(value):
+    if isinstance(value, np.ndarray):
+        return [_json_safe(item) for item in value.tolist()]
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _restore_json_array(data, dtype_spec):
+    def _restore_dtype_part(value):
+        if isinstance(value, list):
+            return tuple(_restore_dtype_part(item) for item in value)
+        return value
+
+    def _restore_dtype(spec):
+        if isinstance(spec, str):
+            return np.dtype(spec)
+
+        raw_dtype = np.dtype([
+            tuple(_restore_dtype_part(item) for item in field)
+            for field in spec
+        ])
+
+        named_fields = [field[0] for field in spec if field[0]]
+        if len(named_fields) == len(spec):
+            return raw_dtype
+
+        return np.dtype({
+            'names': named_fields,
+            'formats': [raw_dtype.fields[name][0] for name in named_fields],
+            'offsets': [raw_dtype.fields[name][1] for name in named_fields],
+            'itemsize': raw_dtype.itemsize,
+        })
+
+    dtype = _restore_dtype(dtype_spec)
+    if dtype.names is None:
+        return np.array(data, dtype=dtype)
+
+    restored = np.zeros(len(data), dtype=dtype)
+    serialized_fields = [field[0] for field in dtype_spec if field[0]]
+
+    for index, row in enumerate(data):
+        for field_name, field_value in zip(serialized_fields, row):
+            restored[field_name][index] = field_value
+
+    return restored
+
+def tree_to_json(tree):
+    check_is_fitted(tree, 'tree_')
+
+    tree_state = tree.tree_.__getstate__()
+    json_tree_state = {}
+
+    for key, value in tree_state.items():
+        if isinstance(value, np.ndarray):
+            json_tree_state[key] = {
+                'data': _json_safe(value),
+                'dtype': _json_safe(
+                    value.dtype.descr if value.dtype.names else value.dtype.str
+                ),
+            }
+        else:
+            json_tree_state[key] = _json_safe(value)
+
+    return {'params': _json_safe(tree.get_params(deep=False)),
+            'classes_': _json_safe(tree.classes_),
+            'n_classes_': _json_safe(tree.n_classes_),
+            'n_features_in_': _json_safe(tree.n_features_in_),
+            'n_outputs_': _json_safe(tree.n_outputs_),
+            'max_features_': _json_safe(tree.max_features_),
+            'max_features': _json_safe(tree.max_features),
+            'random_state': _json_safe(tree.random_state),
+            'sklearn_version': sklearn.__version__,
+            'tree_state': json_tree_state,}
+
 class ScoredClassifier:
     __metaclass__ = abc.ABCMeta
 
@@ -46,14 +131,14 @@ class ScoredClassifier:
         self.float_size = float_size
         self.int_size = int_size
 
-    @abc.abstractclassmethod
+    @abc.abstractmethod
     def get_size(self, float_size=64, int_size=32):
       """Return the size in bits of the classifier.
 
         """
       return
 
-    @abc.abstractclassmethod
+    @abc.abstractmethod
     def predict_score(self, X):
        """Output the prediction score for a list of queries.
 
@@ -62,6 +147,45 @@ class ScoredClassifier:
         """
        return
     
+    @abc.abstractmethod
+    def to_json(self, force=False):
+        """Export the classifier to a JSON representation.
+
+        :param force: if True, the export will be forced even if the size of
+                      the classifier is too large.
+        :type force: bool
+        """
+        return
+    
+    def export(self, path):
+        """Export the classifier to a file.
+
+        :param path: path to the file where the classifier will be exported.
+        :type path: str
+        """
+        with open(path, 'w') as f:
+            json.dump(self.to_json(), f)
+    
+    @abc.abstractmethod
+    def from_json(self, repr):
+        """Import the classifier from a JSON representation.
+
+        :param repr: JSON representation of the classifier.
+        :type repr: dict
+        """
+        return
+    
+    def import_(self, path):
+        """Import the classifier from a file.
+
+        :param path: path to the file where the classifier will be imported
+                     from.
+        :type path: str
+        """
+        with open(path, 'r') as f:
+            repr = json.load(f)
+
+        self.from_json(repr)
 
 class ScoredMLP(ScoredClassifier, MLPRegressor):
     """Score-based MLP classifier for a *binary* problem.
@@ -123,10 +247,11 @@ class ScoredMLP(ScoredClassifier, MLPRegressor):
                                      float_size=float_size,
                                      int_size=int_size)
         
-
     def fit(self, X, y):
-        super(MLPRegressor, self).fit(X, y)
+        #super(MLPRegressor, self).fit(X, y)
+        MLPRegressor.fit(self, X, y)
         self.out_activation_ = 'logistic'
+        return self
 
     def predict_score(self, X):
         check_is_fitted(self, 'n_features_in_')
@@ -203,11 +328,67 @@ class ScoredLinearSVC(ScoredClassifier, LinearSVC):
         if self.classes_[0] is False or self.classes_[0] == 0:
             decision = - decision
 
-        return 1 / (1 + np.exp(decision))
-    
+        # To avoid numerical issues with the exponential function, we compute the sigmoid function in a piecewise way, as suggested in https://stackoverflow.com/questions/51976461/logistic-function-overflow-in-python
+        out = np.empty_like(decision, dtype=float)
+        pos = decision >= 0
+        out[pos]  = np.exp(-decision[pos]) / (1.0 + np.exp(-decision[pos]))
+        out[~pos] = 1.0 / (1.0 + np.exp(decision[~pos]))
+
+        #return 1 / (1 + np.exp(decision))
+        return out
+
     def get_size(self):
         check_is_fitted(self, 'n_features_in_')
         return (1 + self.n_features_in_) * self.float_size
+    
+    def to_json(self, force=False):
+        check_is_fitted(self, 'n_features_in_')
+        if not force and self.get_size() > 1e6:
+            raise ValueError('The size of the classifier is too large to be exported. Use force=True to override this check.')
+        return {'params': _json_safe(self.get_params(deep=False)),
+                'coef_': self.coef_.tolist(),
+                'intercept_': self.intercept_.tolist(),
+                'classes_': self.classes_.tolist(),
+                'float_size': self.float_size,
+                'int_size': self.int_size,
+                'n_features_in_': self.n_features_in_,}
+    def from_json(self, repr):
+        self.set_params(**repr['params'])
+        self.coef_ = np.array(repr['coef_'])
+        self.intercept_ = np.array(repr['intercept_'])
+        self.classes_ = np.array(repr['classes_'])
+        self.float_size = repr['float_size']
+        self.int_size = repr['int_size']
+        self.n_features_in_ = repr['n_features_in_']
+        return self
+
+    def __eq__(self, other):
+        if self is other:
+            return True
+
+        if not isinstance(other, ScoredLinearSVC):
+            return NotImplemented
+
+        if self.get_params(deep=False) != other.get_params(deep=False):
+            return False
+
+        self_fitted = (hasattr(self, "coef_")
+                       and hasattr(self, "intercept_")
+                       and hasattr(self, "classes_"))
+        other_fitted = (hasattr(other, "coef_")
+                        and hasattr(other, "intercept_")
+                        and hasattr(other, "classes_"))
+
+        if self_fitted != other_fitted:
+            return False
+
+        if not self_fitted:
+            return True
+
+        return (np.array_equal(self.coef_, other.coef_)
+                and np.array_equal(self.intercept_, other.intercept_)
+                and np.array_equal(self.classes_, other.classes_))
+
 
 class ScoredDecisionTreeClassifier(ScoredClassifier, DecisionTreeClassifier):
     """Score-based Decision Tree classifier for a *binary* problem.
@@ -261,6 +442,132 @@ class ScoredDecisionTreeClassifier(ScoredClassifier, DecisionTreeClassifier):
     def get_size(self):
         check_is_fitted(self, 'tree_')
         return get_tree_size(self)
+
+    def __eq__(self, other):
+        if self is other:
+            return True
+
+        if not isinstance(other, ScoredDecisionTreeClassifier):
+            return NotImplemented
+
+        if self.get_params(deep=False) != other.get_params(deep=False):
+            return False
+
+        self_fitted = hasattr(self, "tree_") and hasattr(self, "classes_")
+        other_fitted = hasattr(other, "tree_") and hasattr(other, "classes_")
+
+        if self_fitted != other_fitted:
+            return False
+
+        if not self_fitted:
+            return True
+
+        if not np.array_equal(self.classes_, other.classes_):
+            return False
+
+        if getattr(self, "n_features_in_", None) != \
+                              getattr(other, "n_features_in_", None):
+            return False
+
+        self_tree = self.tree_.__getstate__()
+        other_tree = other.tree_.__getstate__()
+
+        if self_tree.keys() != other_tree.keys():
+            return False
+
+        for key in self_tree:
+            left = self_tree[key]
+            right = other_tree[key]
+
+            if isinstance(left, np.ndarray):
+                if not np.array_equal(left, right):
+                    return False
+            else:
+                if left != right:
+                    return False
+
+        return True
+
+    def to_json(self, force=False):
+        check_is_fitted(self, 'tree_')
+        if not force and self.get_size() > 1e6:
+            raise ValueError(
+                'The size of the classifier is too large to be exported. '
+                'Use force=True to override this check.'
+            )
+
+        tree_state = self.tree_.__getstate__()
+        json_tree_state = {}
+
+        for key, value in tree_state.items():
+            if isinstance(value, np.ndarray):
+                json_tree_state[key] = {
+                    'data': _json_safe(value),
+                    'dtype': _json_safe(
+                        value.dtype.descr if value.dtype.names else value.dtype.str
+                    ),
+                }
+            else:
+                json_tree_state[key] = _json_safe(value)
+
+        return {'params': _json_safe(self.get_params(deep=False)),
+                'classes_': _json_safe(self.classes_),
+                'n_classes_': _json_safe(self.n_classes_),
+                'n_features_in_': _json_safe(self.n_features_in_),
+                'n_outputs_': _json_safe(self.n_outputs_),
+                'max_features_': _json_safe(self.max_features_),
+                'float_size': _json_safe(self.float_size),
+                'int_size': _json_safe(self.int_size),
+                'sklearn_version': sklearn.__version__,
+                'tree_state': json_tree_state,}
+
+    def from_json(self, repr):
+        from sklearn.tree import _tree
+
+        saved_version = repr.get('sklearn_version')
+        current_version = sklearn.__version__
+        if saved_version is not None and saved_version != current_version:
+            raise ValueError(
+                f'Cannot import decision tree serialized with scikit-learn '
+                f'{saved_version} using scikit-learn {current_version}.'
+            )
+
+        self.set_params(**repr['params'])
+
+        self.classes_ = np.array(repr['classes_'])
+
+        n_classes = repr['n_classes_']
+        if isinstance(n_classes, list):
+            self.n_classes_ = np.array(n_classes, dtype=np.intp)
+            tree_n_classes = self.n_classes_.astype(np.intp, copy=False)
+        else:
+            self.n_classes_ = int(n_classes)
+            tree_n_classes = np.array([self.n_classes_], dtype=np.intp)
+
+        self.n_features_in_ = int(repr['n_features_in_'])
+        self.n_outputs_ = int(repr['n_outputs_'])
+        self.max_features_ = repr['max_features_']
+        self.float_size = int(repr['float_size'])
+        self.int_size = int(repr['int_size'])
+
+        tree_state = {}
+        for key, value in repr['tree_state'].items():
+            if isinstance(value, dict) and 'data' in value and 'dtype' in value:
+                tree_state[key] = _restore_json_array(
+                    value['data'],
+                    value['dtype'],
+                )
+            else:
+                tree_state[key] = value
+
+        self.tree_ = _tree.Tree(
+            self.n_features_in_,
+            tree_n_classes,
+            self.n_outputs_,
+        ) # note that this will flag the tree as fitted
+        self.tree_.__setstate__(tree_state)
+
+        return self
     
 
 class ScoredRandomForestClassifier(ScoredClassifier, RandomForestClassifier):
@@ -327,3 +634,85 @@ class ScoredRandomForestClassifier(ScoredClassifier, RandomForestClassifier):
     def get_size(self):
         check_is_fitted(self, 'estimators_')
         return sum([get_tree_size(t, float_size=self.float_size, int_size=self.int_size) for t in self.estimators_])
+
+    def to_json(self, force=False):
+        check_is_fitted(self, 'estimators_')
+        if not force and self.get_size() > 1e6:
+            raise ValueError(
+                'The size of the classifier is too large to be exported. '
+                'Use force=True to override this check.'
+            )
+        
+        return {
+            #'n_estimators': _json_safe(self.n_estimators),
+            'params': _json_safe(self.get_params(deep=False)),
+            'estimators_': [tree_to_json(e) for e in self.estimators_],
+            'classes_': _json_safe(self.classes_),
+            'n_classes_': _json_safe(self.n_classes_),
+            'n_features_in_': _json_safe(self.n_features_in_),
+            'n_outputs_': _json_safe(self.n_outputs_),
+            #'float_size': _json_safe(self.float_size),
+            #'int_size': _json_safe(self.int_size),
+            'sklearn_version': sklearn.__version__,
+        }
+
+    def from_json(self, repr):
+        from sklearn.tree import _tree
+
+        saved_version = repr.get('sklearn_version')
+        current_version = sklearn.__version__
+        if saved_version is not None and saved_version != current_version:
+            raise ValueError(
+                f'Cannot import decision tree serialized with scikit-learn '
+                f'{saved_version} using scikit-learn {current_version}.'
+            )
+
+        self.set_params(**repr['params'])
+
+        self.classes_ = np.array(repr['classes_'])
+
+        n_classes = repr['n_classes_']
+        if isinstance(n_classes, list):
+            self.n_classes_ = np.array(n_classes, dtype=np.intp)
+            tree_n_classes = self.n_classes_.astype(np.intp, copy=False)
+        else:
+            self.n_classes_ = int(n_classes)
+            tree_n_classes = np.array([self.n_classes_], dtype=np.intp)
+
+        self.n_features_in_ = int(repr['n_features_in_'])
+        self.n_outputs_ = int(repr['n_outputs_'])
+        
+        self.max_features = repr['params']['max_features']
+        #self.float_size = int(repr['float_size'])
+        #self.int_size = int(repr['int_size'])
+
+        self.estimators_ = []
+        for estimator_repr in repr['estimators_']:
+            tree_state = {}
+            for key, value in estimator_repr['tree_state'].items():
+                if isinstance(value, dict) and 'data' in value and 'dtype' in value:
+                    tree_state[key] = _restore_json_array(
+                        value['data'],
+                        value['dtype'],
+                    )
+                else:
+                    tree_state[key] = value
+
+            t = DecisionTreeClassifier()
+            t.tree_ = _tree.Tree(
+               self.n_features_in_,
+               tree_n_classes,
+               self.n_outputs_,
+            ) # note that this will flag the tree as fitted
+            t.classes_ = np.array(estimator_repr['classes_'])
+            t.n_classes_ = estimator_repr['n_classes_']
+            t.n_features_in_ = int(estimator_repr['n_features_in_'])
+            t.n_outputs_ = int(estimator_repr['n_outputs_'])
+            t.max_features_ = estimator_repr['max_features_']
+            t.max_features = estimator_repr['max_features']
+            t.random_state = estimator_repr['random_state']
+            t.tree_.__setstate__(tree_state)
+
+            self.estimators_.append(t)
+
+        return self
