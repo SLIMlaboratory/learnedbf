@@ -7,6 +7,7 @@ from learnedbf import LBF
 from learnedbf.classifiers import ScoredLinearSVC
 from learnedbf.classifiers import ScoredDecisionTreeClassifier
 from learnedbf.classifiers import ScoredRandomForestClassifier
+from learnedbf.classifiers import ScoredMLP
 
 
 class TestLBF(unittest.TestCase):
@@ -21,6 +22,7 @@ class TestLBF(unittest.TestCase):
             ScoredLinearSVC(random_state=42, max_iter=100000, tol=0.1),
             ScoredDecisionTreeClassifier(random_state=42, max_depth=3),
             ScoredRandomForestClassifier(random_state=42, n_estimators=5),
+            ScoredMLP(hidden_layer_sizes=(3,), random_state=42, max_iter=100000, tol=0.1),
             ]
 
         objects = np.expand_dims(np.arange(1, 10), axis=1)
@@ -29,18 +31,18 @@ class TestLBF(unittest.TestCase):
         for classifier in classifiers:
             classifier.fit(objects, labels)
 
-            lbf = LBF(classifier=classifier, epsilon=0.1, n=len(objects))
-            lbf.fit(objects, labels)
+            filter = LBF(classifier=classifier, epsilon=0.1, n=len(objects))
+            filter.fit(objects, labels)
 
-            self.assertIsNone(lbf.backup_filter_)
+            self.assertIsNone(filter.backup_filter_)
 
-            lbf_repr = lbf.to_json()
-            restored_lbf = LBF()
-            restored_lbf.from_json(lbf_repr)
+            filter_repr = filter.to_json()
+            restored_filter = LBF()
+            restored_filter.from_json(filter_repr)
 
-            self.assertEqual(lbf_repr, restored_lbf.to_json())
-            np.testing.assert_array_equal(restored_lbf.predict(objects),
-                                        lbf.predict(objects))
+            self.assertEqual(filter_repr, restored_filter.to_json())
+            np.testing.assert_array_equal(restored_filter.predict(objects),
+                                        filter.predict(objects))
 
     def test_json_round_trip_with_backup_filter(self):
         objects = np.expand_dims(np.arange(1, 10), axis=1)
@@ -52,18 +54,18 @@ class TestLBF(unittest.TestCase):
                                      C=0.1)
         classifier.fit(objects, labels)
 
-        lbf = LBF(classifier=classifier, epsilon=0.1, n=len(objects))
-        lbf.fit(objects, labels)
+        filter = LBF(classifier=classifier, epsilon=0.1, n=len(objects))
+        filter.fit(objects, labels)
 
-        self.assertIsNotNone(lbf.backup_filter_)
+        self.assertIsNotNone(filter.backup_filter_)
 
-        lbf_repr = lbf.to_json()
-        restored_lbf = LBF()
-        restored_lbf.from_json(lbf_repr)
+        filter_repr = filter.to_json()
+        restored_filter = LBF()
+        restored_filter.from_json(filter_repr)
 
-        self.assertEqual(lbf_repr, restored_lbf.to_json())
-        np.testing.assert_array_equal(restored_lbf.predict(objects),
-                                      lbf.predict(objects))
+        self.assertEqual(filter_repr, restored_filter.to_json())
+        np.testing.assert_array_equal(restored_filter.predict(objects),
+                                      filter.predict(objects))
 
 
 if __name__ == '__main__':

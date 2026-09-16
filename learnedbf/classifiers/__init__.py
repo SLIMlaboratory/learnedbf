@@ -269,6 +269,30 @@ class ScoredMLP(ScoredClassifier, MLPRegressor):
         num_connections = np.dot(first, second)
         return num_connections * self.float_size
 
+    def to_json(self, force=False):
+            check_is_fitted(self, 'coefs_')
+            if not force and self.get_size() > 1e6:
+                raise ValueError('The size of the classifier is too large to be exported. Use force=True to override this check.')
+            return {'params': _json_safe(self.get_params(deep=False)),
+                    'coefs_': self.coefs_,
+                    'intercepts_': self.intercepts_,
+                    'n_layers_': self.n_layers_,
+                    'out_activation_': self.out_activation_,
+                    'float_size': self.float_size,
+                    'int_size': self.int_size,
+                    'n_features_in_': self.n_features_in_,}
+        
+    def from_json(self, repr):
+        self.set_params(**repr['params'])
+        self.coefs_ = repr['coefs_']
+        self.intercepts_ = repr['intercepts_']
+        self.float_size = repr['float_size']
+        self.int_size = repr['int_size']
+        self.n_layers_ = repr['n_layers_']
+        self.n_features_in_ = repr['n_features_in_']
+        self.out_activation_ = repr['out_activation_']
+        return self
+
 
 class ScoredLinearSVC(ScoredClassifier, LinearSVC):
     """Score-based linear SV classifier for a *binary* problem.
@@ -352,6 +376,7 @@ class ScoredLinearSVC(ScoredClassifier, LinearSVC):
                 'float_size': self.float_size,
                 'int_size': self.int_size,
                 'n_features_in_': self.n_features_in_,}
+    
     def from_json(self, repr):
         self.set_params(**repr['params'])
         self.coef_ = np.array(repr['coef_'])

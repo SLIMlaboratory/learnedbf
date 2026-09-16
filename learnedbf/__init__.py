@@ -998,24 +998,25 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
             self.lbf_.from_json(repr['lbf'])
         else:
             self.lbf_ = None
+        self.is_fitted_ = True
 
 
 
 
 
-def to_json(self):
+# def to_json(self):
     
-        repr = {}
-        repr['backup_filter'] = self.backup_filter_.to_json() \
-                                if self.backup_filter_ is not None else None
-        repr['classifier'] = self.classifier.to_json() \
-                                if self.classifier is not None else None
-        repr['threshold'] = self.threshold \
-                            if self.threshold is not None else None
-        repr['classifier_class'] = self.classifier.__class__.__name__ \
-                            if self.classifier is not None else None
+#         repr = {}
+#         repr['backup_filter'] = self.backup_filter_.to_json() \
+#                                 if self.backup_filter_ is not None else None
+#         repr['classifier'] = self.classifier.to_json() \
+#                                 if self.classifier is not None else None
+#         repr['threshold'] = self.threshold \
+#                             if self.threshold is not None else None
+#         repr['classifier_class'] = self.classifier.__class__.__name__ \
+#                             if self.classifier is not None else None
 
-        return repr
+#         return repr
 
     
 class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
