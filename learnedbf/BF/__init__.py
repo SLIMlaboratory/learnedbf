@@ -253,9 +253,12 @@ class ClassicalBloomFilterImpl():
     
 class hashfunc():
 
-    def __init__(self, m):
+    def __init__(self, m, seed=None):
         self.m = m
-        self.seed = randint(1, 99999999)
+        if seed is None:
+            self.seed = randint(1, 99999999)
+        else:
+            self.seed = seed
 
     def __call__(self, x):
         return mmh3.hash(x.tobytes(), self.seed) % self.m
@@ -275,6 +278,7 @@ class VarhashBloomFilter(BaseEstimator, ClassifierMixin, BloomFilter):
         """
         self.k_max = k_max 
         self.m = int(m)
+        self.seed = randint(1, 99999999)
         self.h = [hashfunc(self.m) for _ in range(int(k_max))]
         self.bit_array = bitarray(self.m)
         self.bit_array.setall(0)
@@ -386,6 +390,64 @@ class VarhashBloomFilter(BaseEstimator, ClassifierMixin, BloomFilter):
 
     def get_size(self):
         return int(self.m)
+
+    def to_json(self):
+        """Return a JSON representation of the VarHashBloom Filter.
+
+        :return: dictionary containing the JSON representation of the
+            Bloom Filter.
+        :rtype: `dict`
+        """
+
+        check_is_fitted(self, 'is_fitted_')
+        repr = {}
+        repr['m'] = self.m
+        repr['k_max'] = self.k_max
+        repr['bitmap'] = self.bit_array.tolist()
+        repr['seeds'] = [_.seed for _ in self.h]
+
+        repr['is_fitted_'] = self.is_fitted_
+        
+        return repr
+    
+    def from_json(self, repr):
+        """Load a VarHash Bloom Filter from its JSON representation.
+
+        :param repr: dictionary containing the JSON representation of the
+            Bloom Filter.
+        :type repr: `dict`
+        """
+
+        self.m = repr['m']
+        self.k_max = repr['k_max']
+        self.bit_array = bitarray(repr['bitmap'])
+        seeds = repr['seeds']
+        self.h = [hashfunc(self.m, seed) for seed in seeds]
+
+        self.is_fitted_ = repr['is_fitted_']
+
+    def __eq__(self, other):
+        if not isinstance(other, VarhashBloomFilter):
+            return NotImplemented
+
+        if self.get_params(deep=False) != other.get_params(deep=False):
+            return False
+
+        self_fitted = (hasattr(self, "is_fitted_")
+                        and hasattr(self, "bit_array"))
+        other_fitted = (hasattr(other, "is_fitted_")
+                        and hasattr(other, "bit_array"))
+
+        if self_fitted != other_fitted:
+            return False
+
+        if self.m != other.m or self.k_max != other.k_max:
+            return False
+
+        if self_fitted and other_fitted:
+            return self.bit_array == other.bit_array
+
+        return True
 
 
 class PyBloomLiveAdapter:

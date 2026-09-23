@@ -5,7 +5,7 @@ import unittest
 from learnedbf.BF import ClassicalBloomFilter
 
 
-class TestPybloomliveClassicalClassicalBloomFilter(unittest.TestCase):
+class TestClassicalBloomFilter(unittest.TestCase):
         
     def test_train(self):
         for num_keys in np.logspace(1, 5, 5).astype(int):
