@@ -15,6 +15,8 @@ from sklearn.utils.validation import NotFittedError, check_X_y, check_array, \
 from sklearn.neural_network import MLPClassifier
 from sklearn.tree import DecisionTreeClassifier
 
+import sklearn.model_selection as sms
+
 from learnedbf.BF import BloomFilter, ClassicalBloomFilter, VarhashBloomFilter, ClassicalBloomFilterImpl
 from learnedbf.classifiers import ScoredDecisionTreeClassifier
 
@@ -29,6 +31,9 @@ import learnedbf.classifiers as clf
 # TODO: check the behavior when using non-integer keys
 # TODO: check what happens with the `classes_` attribute of classifiers
 #       not based on trees
+
+# TODO: check threshold_evaluate use in all filters (e.g. in SLBF is not needed at all)
+# TODO: scoring is not handled in to/from_json in all classes
 
 __version__ = '1.0.0'
 
@@ -978,7 +983,7 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                 'classifier': self.lbf_.classifier.get_size()}
     
     def to_json(self):
-    
+        check_is_fitted(self, 'is_fitted_')
         repr = {}
         repr['initial_filter'] = self.initial_filter_.to_json() \
                                 if self.initial_filter_ is not None else None
@@ -1088,7 +1093,6 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.threshold_test_size = threshold_test_size
         self.model_selection_method = model_selection_method
         self.scoring = scoring
-        self.threshold_evaluate = threshold_evaluate
         self.min_backup_size = min_backup_size
         self.backup_filter_size = backup_filter_size
         self.random_state = random_state
@@ -1356,7 +1360,86 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
                 'classifier': self.classifier.get_size()}
 
     # TODO: to_json e from_json di AdaBF
+    def to_json(self):
+        check_is_fitted(self, 'is_fitted_')
+        repr = {}
+        repr['n'] = self.n
+        repr['epsilon'] = self.epsilon
+        repr['m'] = self.m
+        repr['classifier'] = self.classifier.to_json()
+        repr['classifier_class'] = self.classifier.__class__.__name__
+        repr['hyperparameters'] = self.hyperparameters
+        repr['threshold_test_size'] = self.threshold_test_size
+
+        repr['model_selection_method'] = self.model_selection_method.__class__.__name__
+
+        if callable(self.scoring):
+            repr['scoring'] = self.scoring.__name__
+            repr['is_scoring_callable'] = True
+        else:
+            repr['scoring'] = self.scoring
+            repr['is_scoring_callable'] = False
+
+        repr['min_backup_size'] = self.min_backup_size
+        repr['backup_filter_size'] = self.backup_filter_size
+        repr['random_state'] = self.random_state
+        repr['c_min'] = self.c_min
+        repr['c_max'] = self.c_max
+        repr['num_group_min'] = self.num_group_min
+        repr['num_group_max'] = self.num_group_max
+        repr['verbose'] = self.verbose
+
+        repr['backup_filter'] = self.backup_filter_.to_json() \
+                    if self.backup_filter_ is not None else None
+
+        repr['thresholds_'] = self.thresholds_
+        repr['num_group_'] = self.num_group_
+
+        repr['n_features_in_'] = self.n_features_in_
+        
+        return repr
     
+    def from_json(self, repr):
+
+        self.n = repr['n']
+        self.epsilon = repr['epsilon']
+        self.m = repr['m']
+
+        self.classifier = getattr(clf, repr['classifier_class'])()
+        self.classifier.from_json(repr['classifier'])
+
+        self.hyperparameters = repr['hyperparameters']
+        self.threshold_test_size = repr['threshold_test_size']
+
+        self.model_selection_method = getattr(sms, repr['model_selection_method'])
+
+        # TODO: handle is_scoring and is_scoring_callable
+
+        self.min_backup_size = repr['min_backup_size']
+        self.backup_filter_size = repr['backup_filter_size']
+        self.random_state = repr['random_state']
+        self.c_min = repr['c_min']
+        self.c_max = repr['c_max']
+        self.num_group_min = repr['num_group_min']
+        self.num_group_max = repr['num_group_max']
+        self.verbose = repr['verbose']
+
+        if repr['backup_filter'] is not None:
+            # m and k_max are needed in order to build the filter
+            # here below their value is meaningless, it will be
+            # overwritten using repr
+            self.backup_filter_ = VarhashBloomFilter(m=10, k_max=3)
+            self.backup_filter_.from_json(repr['backup_filter'])
+        else:
+            self.backup_filter_ = None
+
+        self.thresholds_ = repr['thresholds_']
+        self.num_group_ = repr['num_group_']
+        self.is_fitted_ = True
+
+        self.n_features_in_ = repr['n_features_in_']
+
+            
 class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
     """Implementation of the Partitioned Learned Bloom Filter"""
 
