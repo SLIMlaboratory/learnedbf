@@ -32,7 +32,6 @@ import learnedbf.classifiers as clf
 # TODO: check what happens with the `classes_` attribute of classifiers
 #       not based on trees
 
-# TODO: check threshold_evaluate use in all filters (e.g. in SLBF is not needed at all)
 # TODO: scoring is not handled in to/from_json in all classes
 
 __version__ = '1.0.0'
@@ -373,7 +372,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     nonkey_predictions_temp = (nonkey_scores >= t)
                     epsilon_tau = nonkey_predictions_temp.sum() / len(nonkey_predictions_temp)
 
-                    result = threshold_evaluate(self.epsilon,
+                    result = self.threshold_evaluate(self.epsilon,
                                                 key_predictions,
                                                 nonkey_predictions)
                     if result is None:
@@ -528,7 +527,6 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                  model_selection_method=StratifiedKFold(n_splits=5,
                                                         shuffle=True),
                  scoring=auprc_score,
-                 threshold_evaluate=threshold_evaluate,
                  classical_BF_class=ClassicalBloomFilterImpl,
                  min_backup_size=1E3,
                  random_state=4678913,
@@ -564,11 +562,6 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         :param scoring: method to be used for scoring learnt
             classifiers, defaults to `auprc`.
         :type scoring: `str` or function
-        :param threshold_evaluate: function to be used to optimize the
-          classifier threshold choice (NOTE: at the current implementation
-          stage there are no alternatives w.r.t. minimizing the size of the
-          backup filter).
-        :type threshold_evaluate: function
         :param classical_BF_class: class of the backup filter, defaults
             to :class:`ClassicalBloomFilterImpl`.
         :param min_backup_size: minimum dimension for backup filters (in bits:
@@ -593,7 +586,6 @@ class SLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.threshold_test_size = threshold_test_size
         self.model_selection_method = model_selection_method
         self.scoring = scoring
-        self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
         self.min_backup_size = min_backup_size
         self.random_state = random_state
@@ -1524,7 +1516,6 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.threshold_test_size = threshold_test_size
         self.model_selection_method = model_selection_method
         self.scoring = scoring
-        self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
         self.min_backup_size = min_backup_size
         self.random_state = random_state
@@ -1816,6 +1807,62 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return {'backup_filters': sum([bf.get_size()
                   for bf in self.splbf.backup_bloom_filters if bf is not None]),
                 'classifier': self.classifier.get_size()}
+
+    def to_json(self):
+        check_is_fitted(self, 'is_fitted_')
+        repr = {}
+
+        repr['n'] = self.n
+        repr['epsilon'] = self.epsilon
+        repr['m'] = self.m
+        repr['classifier'] = self.classifier.to_json()
+        repr['hyperparameters'] = self.hyperparameters
+        repr['threshold_test_size'] = self.threshold_test_size
+        repr['model_selection_method'] = self.model_selection_method.__class__.__name__
+        repr['model_selection_method_params'] = vars(self.model_selection_method)
+
+        if callable(self.scoring):
+            repr['scoring'] = self.scoring.__name__
+            repr['is_scoring_callable'] = True
+        else:
+            repr['scoring'] = self.scoring
+            repr['is_scoring_callable'] = False
+
+        repr['classical_BF_class'] = self.classical_BF_class.__name__
+        
+        repr['min_backup_size'] = self.min_backup_size
+        repr['random_state'] = self.random_state
+        repr['num_group_min'] = self.num_group_min
+        repr['num_group_max'] = self.num_group_max
+        repr['verbose'] = self.verbose
+
+        repr['None'] = self.optim_KL
+        repr['None'] = self.optim_partition
+        repr['N'] = self.N
+
+        repr['optim_KL'] = self.optim_KL
+        repr['optim_partition'] = self.optim_partition
+        repr['splbf'] = self.splbf.to_json()
+        repr['num_groups'] = self.num_groups
+        repr['is_fitted_'] = self.is_fitted_
+        repr['n_features_in_'] = self.n_features_in_
+        
+        return repr
+        
+    def from_json(self, repr): # TODO: fare!
+        if repr['backup_filter'] is not None:
+            # n and epsilon are needed in order to build the filter
+            self.backup_filter_ = ClassicalBloomFilter(n=10, epsilon=0.1)
+            self.backup_filter_.from_json(repr['backup_filter'])
+        else:
+            self.backup_filter_ = None
+    
+        self.classifier = getattr(clf, repr['classifier_class'])()
+        self.classifier.from_json(repr['classifier'])
+            
+        self.threshold = repr['threshold']
+        self.is_fitted_ = True
+
     
 
 class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
@@ -1894,7 +1941,6 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.threshold_test_size = threshold_test_size
         self.model_selection_method = model_selection_method
         self.scoring = scoring
-        self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
         self.min_backup_size = min_backup_size
         self.random_state = random_state
@@ -2260,7 +2306,6 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
         self.threshold_test_size = threshold_test_size
         self.model_selection_method = model_selection_method
         self.scoring = scoring
-        self.threshold_evaluate = threshold_evaluate
         self.classical_BF_class = classical_BF_class
         self.min_backup_size = min_backup_size
         self.random_state = random_state

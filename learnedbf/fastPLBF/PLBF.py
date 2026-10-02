@@ -17,7 +17,7 @@ from sklearn.model_selection import train_test_split
 import argparse
 
 class PLBF:
-    def __init__(self, pos_keys: list, pos_scores: list[float], neg_scores: list[float], F: float, N: int, k: int):
+    def s__init__(self, pos_keys: list, pos_scores: list[float], neg_scores: list[float], F: float, N: int, k: int):
         """
         Args:
             pos_keys (list): keys
@@ -115,7 +115,29 @@ class PLBF:
         
         return (key in self.backup_bloom_filters[region_idx])
 
+    def to_json(self):
+        repr = {}
+        repr['F'] = self.F
+        repr['N'] = self.N
+        repr['k'] = self.k
+        repr['n'] = self.n
+        repr['t'] = self.t
+        repr['f'] = self.f
+        repr['memory_usage_of_backup_bf'] = self.memory_usage_of_backup_bf
+        repr['backup_bloom_filters'] = [f.bloom_filter.to_json() for f in self.backup_bloom_filters]
+        return repr
 
+    def from_json(self, repr):
+        self.F = repr['F']
+        self.N = repr['N']
+        self.k = repr['k']
+        self.n = repr['n']
+        self.t = repr['t']
+        self.f = repr['f']
+        self.memory_usage_of_backup_bf = repr['memory_usage_of_backup_bf']
+        self.backup_bloom_filters = [BloomFilter(0.01, 100) for _ in range(len(repr['backup_bloom_filters']))]
+        for f, r in zip(self.backup_bloom_filters, repr['backup_bloom_filters']):
+            f.bloom_filter.from_json(r)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
