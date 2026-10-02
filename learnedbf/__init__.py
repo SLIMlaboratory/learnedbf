@@ -1284,6 +1284,7 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     if FP_opt > FP_items:
                         FP_opt = FP_items
                         self.backup_filter_ = bloom_filter
+                        self.backup_filter_.is_fitted_ = True
                         self.thresholds_ = thresholds
                         self.num_group_ = k_max
                         # print(f'thresholds {self.thresholds_}, num_group {self.num_group_}, FP_opt {FP_opt}')
@@ -1372,6 +1373,7 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
         repr['threshold_test_size'] = self.threshold_test_size
 
         repr['model_selection_method'] = self.model_selection_method.__class__.__name__
+        repr['model_selection_method_params'] = vars(self.model_selection_method)
 
         if callable(self.scoring):
             repr['scoring'] = self.scoring.__name__
@@ -1411,7 +1413,13 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.hyperparameters = repr['hyperparameters']
         self.threshold_test_size = repr['threshold_test_size']
 
-        self.model_selection_method = getattr(sms, repr['model_selection_method'])
+        # print('^^^^^^^^^^^^^^^^^^')
+        # print(repr['model_selection_method'])
+        # print('^^^^^^^^^^^^^^^^^^^')
+
+        self.model_selection_method = getattr(
+            sms, repr['model_selection_method'])(
+                **repr['model_selection_method_params'])
 
         # TODO: handle is_scoring and is_scoring_callable
 

@@ -4,6 +4,8 @@ from learnedbf import AdaBF
 from learnedbf.classifiers import ScoredRandomForestClassifier, ScoredMLP, \
     ScoredDecisionTreeClassifier, ScoredLinearSVC
 
+from sklearn.exceptions import NotFittedError
+
 
 class TestAdaBF(unittest.TestCase):
 
@@ -54,6 +56,39 @@ class TestAdaBF(unittest.TestCase):
     def test_FN(self):
         for adabf in self.filters:
             self.assertTrue(sum(adabf.predict(self.objects[~self.labels]) == 0))
+
+
+    def test_to_json_requires_fit(self):
+        with self.assertRaises(NotFittedError):
+            AdaBF().to_json()
+
+    def test_json_round_trip_with_backup_filter(self):
+        objects = np.expand_dims(np.arange(1, 10), axis=1)
+        labels = [True, False, False, False, False, False, True, True, True]
+
+        classifier = ScoredLinearSVC(random_state=522812,
+                                     max_iter=100000,
+                                     tol=0.1,
+                                     C=0.1)
+        classifier.fit(objects, labels)
+
+        filter = AdaBF(classifier=classifier, m=10_000, n=len(objects))
+        filter.fit(objects, labels)
+
+        self.assertIsNotNone(filter.backup_filter_)
+
+        filter_repr = filter.to_json()
+        restored_filter = AdaBF(m=10, n=5)
+        restored_filter.from_json(filter_repr)
+
+        # print(filter_repr)
+        # print('\n ------------------------ \n')
+        # print(restored_filter.to_json())
+
+        self.assertEqual(filter_repr, restored_filter.to_json())
+        np.testing.assert_array_equal(restored_filter.predict(objects),
+                                      filter.predict(objects))
+
 
 if __name__ == '__main__':
     unittest.main()
