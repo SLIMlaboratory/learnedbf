@@ -3,6 +3,7 @@ import numpy as np
 from learnedbf import PLBF
 from learnedbf.classifiers import ScoredRandomForestClassifier, ScoredMLP, \
     ScoredDecisionTreeClassifier, ScoredLinearSVC
+from sklearn.exceptions import NotFittedError
 
 
 class TestPLBF(unittest.TestCase):
@@ -66,6 +67,33 @@ class TestPLBF(unittest.TestCase):
         for plbf in self.filters:
             fpr = plbf.estimate_FPR(nonkeys)
             self.assertAlmostEqual(fpr, 0.01, delta=0.01)
+
+    def test_to_json_requires_fit(self):
+        with self.assertRaises(NotFittedError):
+            PLBF().to_json()
+
+    def test_json_round_trip_with_backup_filter(self):
+        objects = np.expand_dims(np.arange(1, 10), axis=1)
+        labels = [True, False, False, False, False, False, True, True, True]
+
+        classifier = ScoredLinearSVC(random_state=522812,
+                                     max_iter=100000,
+                                     tol=0.1,
+                                     C=0.1)
+        classifier.fit(objects, labels)
+
+        filter = PLBF(classifier=classifier, epsilon=0.1, n=len(objects))
+        filter.fit(objects, labels)
+
+        self.assertIsNotNone(filter.splbf.backup_bloom_filters)
+
+        filter_repr = filter.to_json()
+        restored_filter = PLBF()
+        restored_filter.from_json(filter_repr)
+
+        self.assertEqual(filter_repr, restored_filter.to_json())
+        np.testing.assert_array_equal(restored_filter.predict(objects),
+                                      filter.predict(objects))
 
 if __name__ == '__main__':
     unittest.main()

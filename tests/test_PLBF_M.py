@@ -3,6 +3,7 @@ import numpy as np
 from learnedbf import PLBF
 from learnedbf.classifiers import ScoredRandomForestClassifier, ScoredMLP, \
     ScoredDecisionTreeClassifier, ScoredLinearSVC
+from sklearn.exceptions import NotFittedError
 
 
 class TestPLBF_M(unittest.TestCase):
@@ -73,6 +74,7 @@ class TestPLBF_M(unittest.TestCase):
             # print(f'size (from get_size): {m}')
             self.assertAlmostEqual(m, plbf.m, delta=100)
 
+    
         
 
 if __name__ == '__main__':

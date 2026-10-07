@@ -57,7 +57,6 @@ class TestAdaBF(unittest.TestCase):
         for adabf in self.filters:
             self.assertTrue(sum(adabf.predict(self.objects[~self.labels]) == 0))
 
-
     def test_to_json_requires_fit(self):
         with self.assertRaises(NotFittedError):
             AdaBF().to_json()
@@ -80,10 +79,6 @@ class TestAdaBF(unittest.TestCase):
         filter_repr = filter.to_json()
         restored_filter = AdaBF(m=10, n=5)
         restored_filter.from_json(filter_repr)
-
-        # print(filter_repr)
-        # print('\n ------------------------ \n')
-        # print(restored_filter.to_json())
 
         self.assertEqual(filter_repr, restored_filter.to_json())
         np.testing.assert_array_equal(restored_filter.predict(objects),

@@ -3,6 +3,7 @@ import numpy as np
 from learnedbf import FastPLBF
 from learnedbf.classifiers import ScoredRandomForestClassifier, ScoredMLP, \
     ScoredDecisionTreeClassifier, ScoredLinearSVC
+from sklearn.exceptions import NotFittedError
 
 
 class TestFastPLBF(unittest.TestCase):
@@ -54,7 +55,6 @@ class TestFastPLBF(unittest.TestCase):
     def test_fit(self):
         for plbf in TestFastPLBF.filters:
             assert plbf.is_fitted_
-
         
     def test_FN(self):
         for plbf in TestFastPLBF.filters:
@@ -65,6 +65,7 @@ class TestFastPLBF(unittest.TestCase):
         for plbf in self.filters:
             fpr = plbf.estimate_FPR(nonkeys)
             self.assertAlmostEqual(fpr, 0.01, delta=0.01)
+
 
 if __name__ == '__main__':
     unittest.main()
