@@ -27,6 +27,7 @@ from learnedbf.fastPLBF.FastPLBF_M import FastPLBF_M as SupportFastPLBF_M
 from learnedbf.fastPLBF.FastPLBFpp import FastPLBFpp as SupportFastPLBFpp
 from learnedbf.fastPLBF.FastPLBFpp_M import FastPLBFpp_M as SupportFastPLBFpp_M
 import learnedbf.classifiers as clf
+import learnedbf.BF as cbf
 
 # TODO: check the behavior when using non-integer keys
 # TODO: check what happens with the `classes_` attribute of classifiers
@@ -496,6 +497,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
         repr['classifier'] = self.classifier.to_json()
         repr['threshold'] = self.threshold
         repr['classifier_class'] = self.classifier.__class__.__name__
+        repr['classical_BF_class'] = self.classical_BF_class.__name__
 
         return repr
     
@@ -509,6 +511,8 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         self.classifier = getattr(clf, repr['classifier_class'])()
         self.classifier.from_json(repr['classifier'])
+
+        self.classical_BF_class = getattr(clf, repr['classical_BF_class'])()
         
         self.threshold = repr['threshold']
         self.is_fitted_ = True
@@ -1405,15 +1409,11 @@ class AdaBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.hyperparameters = repr['hyperparameters']
         self.threshold_test_size = repr['threshold_test_size']
 
-        # print('^^^^^^^^^^^^^^^^^^')
-        # print(repr['model_selection_method'])
-        # print('^^^^^^^^^^^^^^^^^^^')
-
         self.model_selection_method = getattr(
             sms, repr['model_selection_method'])(
                 **repr['model_selection_method_params'])
 
-        # TODO: handle is_scoring and is_scoring_callable
+        # TODO: handle scoring and is_scoring_callable
 
         self.min_backup_size = repr['min_backup_size']
         self.backup_filter_size = repr['backup_filter_size']
@@ -1753,6 +1753,9 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
             self.splbf = f_optimal
         
+        for f in self.splbf.backup_bloom_filters:
+            if f is not None:
+                f.bloom_filter.is_fitted_ = True
         self.num_groups = num_group_opt
         self.is_fitted_ = True
         self.n_features_in_ = X.shape[1]
@@ -1815,18 +1818,14 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         repr['n'] = self.n
         repr['epsilon'] = self.epsilon
         repr['m'] = self.m
+        repr['classifier_class'] = self.classifier.__class__.__name__
         repr['classifier'] = self.classifier.to_json()
         repr['hyperparameters'] = self.hyperparameters
         repr['threshold_test_size'] = self.threshold_test_size
         repr['model_selection_method'] = self.model_selection_method.__class__.__name__
         repr['model_selection_method_params'] = vars(self.model_selection_method)
 
-        if callable(self.scoring):
-            repr['scoring'] = self.scoring.__name__
-            repr['is_scoring_callable'] = True
-        else:
-            repr['scoring'] = self.scoring
-            repr['is_scoring_callable'] = False
+        # TODO: handle scoring and is_scoring_callable
 
         repr['classical_BF_class'] = self.classical_BF_class.__name__
         
@@ -1836,8 +1835,6 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         repr['num_group_max'] = self.num_group_max
         repr['verbose'] = self.verbose
 
-        repr['None'] = self.optim_KL
-        repr['None'] = self.optim_partition
         repr['N'] = self.N
 
         repr['optim_KL'] = self.optim_KL
@@ -1849,21 +1846,37 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         
         return repr
         
-    def from_json(self, repr): # TODO: fare!
-        if repr['backup_filter'] is not None:
-            # n and epsilon are needed in order to build the filter
-            self.backup_filter_ = ClassicalBloomFilter(n=10, epsilon=0.1)
-            self.backup_filter_.from_json(repr['backup_filter'])
-        else:
-            self.backup_filter_ = None
-    
+    def from_json(self, repr):
+
+        self.n = repr['n']
+        self.epsilon = repr['epsilon']
+        self.m = repr['m']
         self.classifier = getattr(clf, repr['classifier_class'])()
         self.classifier.from_json(repr['classifier'])
-            
-        self.threshold = repr['threshold']
-        self.is_fitted_ = True
+        self.hyperparameters = repr['hyperparameters']
+        self.threshold_test_size = repr['threshold_test_size']
+        self.model_selection_method = getattr(
+                    sms, repr['model_selection_method'])(
+                        **repr['model_selection_method_params'])
+        
+        # TODO: handle scoring and is_scoring_callable
+        self.classical_BF_class = getattr(cbf, repr['classical_BF_class'])
+        
+        self.min_backup_size = repr['min_backup_size']
+        self.random_state = repr['random_state']
+        self.num_group_min = repr['num_group_min']
+        self.num_group_max = repr['num_group_max']
+        self.verbose = repr['verbose']
+        self.N = repr['N']
 
-    
+        self.optim_KL= repr['optim_KL']
+        self.optim_partition = repr['optim_partition']
+        self.splbf = SupportPLBF([], [], [], 0.01, 100, 3)
+        self.splbf.from_json(repr['splbf'])
+        self.num_groups = repr['num_groups']
+        self.n_features_in_ = repr['n_features_in_']
+        self.is_fitted_ = True
+  
 
 class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
     """Implementation of the Partitioned Learned Bloom Filter"""
