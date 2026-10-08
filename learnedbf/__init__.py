@@ -1840,6 +1840,7 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         repr['optim_KL'] = self.optim_KL
         repr['optim_partition'] = self.optim_partition
         repr['splbf'] = self.splbf.to_json()
+        repr['plbf_type'] = 'epsilon_fixed' if self.splbf.__class__.__name__ == 'PLBF' else 'm_fixed'
         repr['num_groups'] = self.num_groups
         repr['is_fitted_'] = self.is_fitted_
         repr['n_features_in_'] = self.n_features_in_
@@ -1871,7 +1872,12 @@ class PLBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
         self.optim_KL= repr['optim_KL']
         self.optim_partition = repr['optim_partition']
-        self.splbf = SupportPLBF([], [], [], 0.01, 100, 3)
+
+        if repr['plbf_type'] == 'epsilon_fixed':
+            self.splbf = SupportPLBF([], [], [], 0.01, 100, 3)
+        else:
+            self.splbf = SupportPLBF_M([1, 2, 3, 4], [0.4, 0.3, 0.5, 0.5], [0.1, 0.2, 0.1], 0.01, 100, 3)
+
         self.splbf.from_json(repr['splbf'])
         self.num_groups = repr['num_groups']
         self.n_features_in_ = repr['n_features_in_']

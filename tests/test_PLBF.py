@@ -82,7 +82,7 @@ class TestPLBF(unittest.TestCase):
                                      C=0.1)
         classifier.fit(objects, labels)
 
-        filter = PLBF(classifier=classifier, epsilon=0.1, n=len(objects))
+        filter = PLBF(classifier=classifier, epsilon=0.1, n=len(objects), num_group_min=2, num_group_max=3)
         filter.fit(objects, labels)
 
         self.assertIsNotNone(filter.splbf.backup_bloom_filters)

@@ -122,6 +122,32 @@ class PLBF_M:
         
         return (key in self.backup_bloom_filters[region_idx])
 
+    def to_json(self):
+        repr = {}
+        repr['M'] = self.M
+        repr['N'] = self.N
+        repr['k'] = self.k
+        repr['n'] = self.n   
+        repr['t'] = self.t
+        repr['f'] = self.f
+        repr['minExpectedFPR'] = self.minExpectedFPR
+        repr['memory_usage_of_backup_bf'] = self.memory_usage_of_backup_bf
+        repr['backup_bloom_filters'] = [f.bloom_filter.to_json() for f in self.backup_bloom_filters[1:]]
+        return repr
+
+    def from_json(self, repr):
+        self.M = repr['M']
+        self.N = repr['N']
+        self.k = repr['k']
+        self.n = repr['n']
+        self.t = repr['t']
+        self.f = repr['f']
+        self.minExpectedFPR = repr['minExpectedFPR']
+        self.memory_usage_of_backup_bf = repr['memory_usage_of_backup_bf']
+        self.backup_bloom_filters = [BloomFilter(0.01, 100) for _ in range(len(repr['backup_bloom_filters']))]
+        for f, r in zip(self.backup_bloom_filters, repr['backup_bloom_filters']):
+            f.bloom_filter.from_json(r)
+        self.backup_bloom_filters.insert(0, None)  # insert None at index 0 to match the original indexing
 
 
 if __name__ == "__main__":
