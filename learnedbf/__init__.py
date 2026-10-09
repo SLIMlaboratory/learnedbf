@@ -512,7 +512,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
         self.classifier = getattr(clf, repr['classifier_class'])()
         self.classifier.from_json(repr['classifier'])
 
-        self.classical_BF_class = getattr(clf, repr['classical_BF_class'])()
+        self.classical_BF_class = getattr(cbf, repr['classical_BF_class'])
         
         self.threshold = repr['threshold']
         self.is_fitted_ = True
@@ -2196,6 +2196,10 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
                     num_group_opt = num_group
 
             self.splbf = f_optimal
+
+        for f in self.splbf.backup_bloom_filters:
+            if f is not None:
+                f.bloom_filter.is_fitted_ = True
         
         self.num_groups = num_group_opt
         self.is_fitted_ = True
@@ -2247,6 +2251,78 @@ class FastPLBF(BaseEstimator, BloomFilter, ClassifierMixin):
         return {'backup_filters': sum([bf.get_size()
                   for bf in self.splbf.backup_bloom_filters if bf is not None]),
                 'classifier': self.classifier.get_size()}
+
+    def to_json(self):
+        check_is_fitted(self, 'is_fitted_')
+        repr = {}
+
+        repr['n'] = self.n
+        repr['epsilon'] = self.epsilon
+        repr['m'] = self.m
+        repr['classifier_class'] = self.classifier.__class__.__name__
+        repr['classifier'] = self.classifier.to_json()
+        repr['hyperparameters'] = self.hyperparameters
+        repr['threshold_test_size'] = self.threshold_test_size
+        repr['model_selection_method'] = self.model_selection_method.__class__.__name__
+        repr['model_selection_method_params'] = vars(self.model_selection_method)
+
+        # TODO: handle scoring and is_scoring_callable
+
+        repr['classical_BF_class'] = self.classical_BF_class.__name__
+        
+        repr['min_backup_size'] = self.min_backup_size
+        repr['random_state'] = self.random_state
+        repr['num_group_min'] = self.num_group_min
+        repr['num_group_max'] = self.num_group_max
+        repr['verbose'] = self.verbose
+
+        repr['N'] = self.N
+
+        repr['optim_KL'] = self.optim_KL
+        repr['optim_partition'] = self.optim_partition
+        repr['splbf'] = self.splbf.to_json()
+        repr['plbf_type'] = 'epsilon_fixed' if self.splbf.__class__.__name__ == 'FastPLBF' else 'm_fixed'
+        repr['num_groups'] = self.num_groups
+        repr['is_fitted_'] = self.is_fitted_
+        repr['n_features_in_'] = self.n_features_in_
+        
+        return repr
+        
+    def from_json(self, repr):
+
+        self.n = repr['n']
+        self.epsilon = repr['epsilon']
+        self.m = repr['m']
+        self.classifier = getattr(clf, repr['classifier_class'])()
+        self.classifier.from_json(repr['classifier'])
+        self.hyperparameters = repr['hyperparameters']
+        self.threshold_test_size = repr['threshold_test_size']
+        self.model_selection_method = getattr(
+                    sms, repr['model_selection_method'])(
+                        **repr['model_selection_method_params'])
+        
+        # TODO: handle scoring and is_scoring_callable
+        self.classical_BF_class = getattr(cbf, repr['classical_BF_class'])
+        
+        self.min_backup_size = repr['min_backup_size']
+        self.random_state = repr['random_state']
+        self.num_group_min = repr['num_group_min']
+        self.num_group_max = repr['num_group_max']
+        self.verbose = repr['verbose']
+        self.N = repr['N']
+
+        self.optim_KL= repr['optim_KL']
+        self.optim_partition = repr['optim_partition']
+
+        if repr['plbf_type'] == 'epsilon_fixed':
+            self.splbf = SupportFastPLBF([], [], [], 0.01, 100, 3)
+        else:
+            self.splbf = SupportFastPLBF_M([1, 2, 3, 4], [0.4, 0.3, 0.5, 0.5], [0.1, 0.2, 0.1], 0.01, 100, 3)
+
+        self.splbf.from_json(repr['splbf'])
+        self.num_groups = repr['num_groups']
+        self.n_features_in_ = repr['n_features_in_']
+        self.is_fitted_ = True
 
 
 class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
@@ -2561,6 +2637,10 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
                     num_group_opt = num_group
 
             self.splbf = f_optimal
+
+        for f in self.splbf.backup_bloom_filters:
+            if f is not None:
+                f.bloom_filter.is_fitted_ = True
         
         self.num_groups = num_group_opt
         self.is_fitted_ = True
@@ -2612,3 +2692,75 @@ class FastPLBFpp(BaseEstimator, BloomFilter, ClassifierMixin):
         return {'backup_filters': sum([bf.get_size()
                   for bf in self.splbf.backup_bloom_filters if bf is not None]),
                 'classifier': self.classifier.get_size()}
+
+    def to_json(self):
+        check_is_fitted(self, 'is_fitted_')
+        repr = {}
+
+        repr['n'] = self.n
+        repr['epsilon'] = self.epsilon
+        repr['m'] = self.m
+        repr['classifier_class'] = self.classifier.__class__.__name__
+        repr['classifier'] = self.classifier.to_json()
+        repr['hyperparameters'] = self.hyperparameters
+        repr['threshold_test_size'] = self.threshold_test_size
+        repr['model_selection_method'] = self.model_selection_method.__class__.__name__
+        repr['model_selection_method_params'] = vars(self.model_selection_method)
+
+        # TODO: handle scoring and is_scoring_callable
+
+        repr['classical_BF_class'] = self.classical_BF_class.__name__
+        
+        repr['min_backup_size'] = self.min_backup_size
+        repr['random_state'] = self.random_state
+        repr['num_group_min'] = self.num_group_min
+        repr['num_group_max'] = self.num_group_max
+        repr['verbose'] = self.verbose
+
+        repr['N'] = self.N
+
+        repr['optim_KL'] = self.optim_KL
+        repr['optim_partition'] = self.optim_partition
+        repr['splbf'] = self.splbf.to_json()
+        repr['plbf_type'] = 'epsilon_fixed' if self.splbf.__class__.__name__ == 'FastPLBFpp' else 'm_fixed'
+        repr['num_groups'] = self.num_groups
+        repr['is_fitted_'] = self.is_fitted_
+        repr['n_features_in_'] = self.n_features_in_
+        
+        return repr
+        
+    def from_json(self, repr):
+
+        self.n = repr['n']
+        self.epsilon = repr['epsilon']
+        self.m = repr['m']
+        self.classifier = getattr(clf, repr['classifier_class'])()
+        self.classifier.from_json(repr['classifier'])
+        self.hyperparameters = repr['hyperparameters']
+        self.threshold_test_size = repr['threshold_test_size']
+        self.model_selection_method = getattr(
+                    sms, repr['model_selection_method'])(
+                        **repr['model_selection_method_params'])
+        
+        # TODO: handle scoring and is_scoring_callable
+        self.classical_BF_class = getattr(cbf, repr['classical_BF_class'])
+        
+        self.min_backup_size = repr['min_backup_size']
+        self.random_state = repr['random_state']
+        self.num_group_min = repr['num_group_min']
+        self.num_group_max = repr['num_group_max']
+        self.verbose = repr['verbose']
+        self.N = repr['N']
+
+        self.optim_KL= repr['optim_KL']
+        self.optim_partition = repr['optim_partition']
+
+        if repr['plbf_type'] == 'epsilon_fixed':
+            self.splbf = SupportFastPLBFpp([], [], [], 0.01, 100, 3)
+        else:
+            self.splbf = SupportFastPLBFpp_M([1, 2, 3, 4], [0.4, 0.3, 0.5, 0.5], [0.1, 0.2, 0.1], 0.01, 100, 3)
+
+        self.splbf.from_json(repr['splbf'])
+        self.num_groups = repr['num_groups']
+        self.n_features_in_ = repr['n_features_in_']
+        self.is_fitted_ = True

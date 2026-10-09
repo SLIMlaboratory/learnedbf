@@ -73,5 +73,30 @@ class TestFastPLBF_M(unittest.TestCase):
             # print(f'size (from get_size): {m}')
             self.assertAlmostEqual(m, fastplbf.m, delta=100)
 
+    def test_json_round_trip_with_backup_filter(self):
+        objects = np.expand_dims(np.arange(1, 10), axis=1)
+        labels = [True, False, False, True, False, False, True, True, True]
+
+        classifier = ScoredLinearSVC(random_state=522812,
+                                     max_iter=100000,
+                                     tol=0.1,
+                                     C=0.1)
+        classifier.fit(objects, labels)
+
+        filter = FastPLBF(classifier=classifier, m=1_000, n=len(objects))
+        filter.fit(objects, labels)
+
+        self.assertIsNotNone(filter.splbf.backup_bloom_filters)
+
+        filter_repr = filter.to_json()
+        restored_filter = FastPLBF(m=1_000, n=len(objects))
+        restored_filter.from_json(filter_repr)
+
+        self.assertEqual(filter_repr, restored_filter.to_json())
+        np.testing.assert_array_equal(restored_filter.predict(objects),
+                                      filter.predict(objects))
+        
+
+
 if __name__ == '__main__':
     unittest.main()
