@@ -11,6 +11,14 @@ import pybloom_live
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+
+def _numpy_default(o):
+    if isinstance(o, np.generic):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+
 def check_params_(n, epsilon, m):
     """Check the consistency of the arguments passed to the constructor.
 
@@ -155,7 +163,7 @@ class BloomFilter:
         :type path: str
         """
         with open(path, 'w') as f:
-            json.dump(self.to_json(), f)
+            json.dump(self.to_json(), f, default=_numpy_default)
     
     @abc.abstractmethod
     def from_json(self, repr):
@@ -249,7 +257,7 @@ class ClassicalBloomFilterImpl():
         '''
 
         k = (m/n) * math.log(2)
-        return int(k)
+        return math.ceil(k)
     
 class hashfunc():
 

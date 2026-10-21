@@ -9,8 +9,8 @@
 #include <sys/types.h>
 
 /*
- * Build with: cc -std=c11 -O2 read_lbf.c -lm -o read_lbf
- * Usage:      ./read_lbf exported_lbf.json data/cases.csv
+ * Build with: gcc -std=c11 -O2 read_lbf.c -lm -o read_lbf
+ * Usage:      ./read_lbf exported_lbf.json data/keys.csv data/nonkeys.csv N_KEYS N_NONKEYS
  * The input JSON must be produced by LBF.export() using ScoredLinearSVC.
  * The first CSV row is treated as a header; subsequent rows must contain
  * exactly one numeric feature per model input feature.
@@ -239,19 +239,27 @@ static int backup_filter_contains(const JsonParser *parser, size_t filter,
 		fail("invalid backup Bloom filter dimensions");
 	size_t hash_count = (size_t)(((double)m / n) * log(2.0));
 
+	/* build_lbf.py loads float32 data, so Python hashes the float32 bytes. */
+	float *key = malloc(feature_count * sizeof(*key));
+	if (key == NULL) fail("out of memory hashing key");
+	for (size_t i = 0; i < feature_count; i++) key[i] = (float)features[i];
+
 	for (size_t seed = 0; seed < hash_count; seed++) {
-		int32_t hash = murmur3_32((const unsigned char *)features,
-									  feature_count * sizeof(*features), (uint32_t)seed);
+		int32_t hash = murmur3_32((const unsigned char *)key,
+									  feature_count * sizeof(*key), (uint32_t)seed);
 		/* Python's mmh3.hash(...) % m uses signed, nonnegative modulo. */
 		int64_t remainder = (int64_t)hash % (int64_t)m;
 		if (remainder < 0) remainder += (int64_t)m;
 		size_t bit = (size_t)remainder;
 		size_t bit_token = array_get(parser, bitmap, bit);
-		if (token_equals(parser, bit_token, "false") || token_equals(parser, bit_token, "0"))
+		if (token_equals(parser, bit_token, "false") || token_equals(parser, bit_token, "0")) {
+			free(key);
 			return 0;
+		}
 		if (!token_equals(parser, bit_token, "true") && !token_equals(parser, bit_token, "1"))
 			fail("invalid value in backup Bloom filter bitmap");
 	}
+	free(key);
 	return 1;
 }
 
@@ -351,13 +359,64 @@ static int predict_case(const JsonParser *parser, size_t root, size_t coef_row,
 }
 
 static void usage(const char *program) {
-	fprintf(stderr, "Usage: %s MODEL.json CASES.csv\n"
-					"Reads a learnedbf.LBF export with a ScoredLinearSVC and predicts "
-					"each numeric case in the CSV (skipping its header row).\n", program);
+	fprintf(stderr, "Usage: %s MODEL.json KEYS.csv NONKEYS.csv N_KEYS N_NONKEYS\n"
+					"Reads a learnedbf.LBF export with a ScoredLinearSVC, checks that the "
+					"first N_KEYS keys are predicted positive and prints the false positive "
+					"ratio on the first N_NONKEYS non-keys (CSV header rows are skipped).\n",
+			program);
+}
+
+static size_t parse_count(const char *text, const char *name) {
+	char *end = NULL;
+	errno = 0;
+	unsigned long long value = strtoull(text, &end, 10);
+	if (errno != 0 || end == text || *end != '\0' || text[0] == '-' || value == 0) {
+		fprintf(stderr, "read_lbf: %s must be a positive integer\n", name);
+		exit(EXIT_FAILURE);
+	}
+	return (size_t)value;
+}
+
+/* Reads exactly wanted rows; returns how many were predicted positive. */
+static size_t count_positives(const char *path, const JsonParser *parser, size_t root,
+							  size_t coef_row, size_t intercept, size_t classes,
+							  size_t feature_count, double *features, size_t wanted) {
+	FILE *cases = fopen(path, "r");
+	if (cases == NULL) {
+		fprintf(stderr, "read_lbf: cannot open '%s': %s\n", path, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	char *line = NULL;
+	size_t line_capacity = 0;
+	ssize_t line_length;
+	if (getline(&line, &line_capacity, cases) < 0) fail("CSV input is empty; expected a header row");
+	size_t line_number = 1, rows = 0, positives = 0;
+	while (rows < wanted && (line_length = getline(&line, &line_capacity, cases)) >= 0) {
+		line_number++;
+		char *nonspace = line;
+		while (*nonspace == ' ' || *nonspace == '\t' || *nonspace == '\r' || *nonspace == '\n')
+			nonspace++;
+		if (line_length == 0 || *nonspace == '\0') continue;
+		parse_csv_features(line, features, feature_count, line_number);
+		double score;
+		positives += predict_case(parser, root, coef_row, intercept,
+								  classes, feature_count, features, &score) ? 1 : 0;
+		rows++;
+	}
+	if (ferror(cases)) fail("error reading CSV cases");
+	if (rows < wanted) {
+		fprintf(stderr, "read_lbf: '%s' has only %zu rows, %zu requested\n", path, rows, wanted);
+		exit(EXIT_FAILURE);
+	}
+	free(line);
+	fclose(cases);
+	return positives;
 }
 
 int main(int argc, char **argv) {
-	if (argc != 3) { usage(argv[0]); return EXIT_FAILURE; }
+	if (argc != 6) { usage(argv[0]); return EXIT_FAILURE; }
+	size_t key_total = parse_count(argv[4], "N_KEYS");
+	size_t nonkey_total = parse_count(argv[5], "N_NONKEYS");
 
 	size_t length;
 	char *json = read_file(argv[1], &length);
@@ -383,32 +442,18 @@ int main(int argc, char **argv) {
 	if (features == NULL) fail("out of memory allocating features");
 	size_t intercept = required_field(&parser, classifier, "intercept_");
 	size_t classes = required_field(&parser, classifier, "classes_");
-	FILE *cases = fopen(argv[2], "r");
-	if (cases == NULL) {
-		fprintf(stderr, "read_lbf: cannot open '%s': %s\n", argv[2], strerror(errno));
+	size_t key_hits = count_positives(argv[2], &parser, root, coef_row, intercept,
+									  classes, feature_count, features, key_total);
+	if (key_hits != key_total) {
+		fprintf(stderr, "read_lbf: %zu of %zu keys were not predicted as keys\n",
+				key_total - key_hits, key_total);
 		return EXIT_FAILURE;
 	}
-	char *line = NULL;
-	size_t line_capacity = 0;
-	ssize_t line_length;
-	if (getline(&line, &line_capacity, cases) < 0) fail("CSV input is empty; expected a header row");
-	size_t line_number = 1, case_number = 0;
-	while ((line_length = getline(&line, &line_capacity, cases)) >= 0) {
-		line_number++;
-		char *nonspace = line;
-		while (*nonspace == ' ' || *nonspace == '\t' || *nonspace == '\r' || *nonspace == '\n')
-			nonspace++;
-		if (line_length == 0 || *nonspace == '\0') continue;
-		parse_csv_features(line, features, feature_count, line_number);
-		double score;
-		int predicted = predict_case(&parser, root, coef_row, intercept,
-									 classes, feature_count, features, &score);
-		printf("%zu,%.17g,%s\n", ++case_number, score, predicted ? "true" : "false");
-	}
-	if (ferror(cases)) fail("error reading CSV cases");
-	if (case_number == 0) fail("CSV contains a header but no case rows");
-	free(line);
-	fclose(cases);
+	size_t false_positives = count_positives(argv[3], &parser, root, coef_row, intercept,
+											 classes, feature_count, features, nonkey_total);
+	printf("keys: %zu, all predicted positive\n", key_total);
+	printf("non-keys: %zu, false positives: %zu, FPR: %.17g\n", nonkey_total,
+		   false_positives, (double)false_positives / (double)nonkey_total);
 	free(features);
 	free(parser.tokens);
 	free(json);
