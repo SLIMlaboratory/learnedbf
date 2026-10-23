@@ -70,11 +70,11 @@ if __name__ == "__main__":
     y = np.concatenate((y_keys, y_nonkeys)).astype(bool)
 
     hyper={'C':[0.01, 0.1, 1, 5, 10]}
-    hyper={'C':[0.01]}
+    hyper={'C':[1]}
     
     learned_filter = LBF(
         epsilon=args.epsilon,
-        classifier=ScoredLinearSVC(max_iter=1000, random_state=42),
+        classifier=ScoredLinearSVC(max_iter=15000, random_state=42),
         threshold_test_size=0.2,
         hyperparameters=hyper
     )
@@ -89,7 +89,9 @@ if __name__ == "__main__":
         f.write(f"FPR: {fpr_nonkeys}\n")
         f.write(f"size: {size}\n")
 
-    classical_filter = ClassicalBloomFilter(epsilon=args.epsilon, n=args.n_keys)
+    # For the classical filter, we use the empirical FPR from the learned filter
+    # for a fair comparison.
+    classical_filter = ClassicalBloomFilter(epsilon=fpr_nonkeys, n=args.n_keys)
     classical_filter.fit(X_keys)
 
     classical_filter.export(f"{args.file_name}.classical.json")

@@ -8,6 +8,10 @@
 #include <string.h>
 #include <sys/types.h>
 
+#ifndef LBF_PROGRAM_NAME
+#define LBF_PROGRAM_NAME "read_lbf"
+#endif
+
 /*
  * Build with: gcc -std=c11 -O2 read_lbf.c -lm -o read_lbf
  * Usage:      ./read_lbf exported_lbf.json data/keys.csv data/nonkeys.csv N_KEYS N_NONKEYS
@@ -36,7 +40,7 @@ typedef struct {
 } JsonParser;
 
 static void fail(const char *message) {
-	fprintf(stderr, "read_lbf: %s\n", message);
+	fprintf(stderr, "%s: %s\n", LBF_PROGRAM_NAME, message);
 	exit(EXIT_FAILURE);
 }
 
@@ -230,6 +234,7 @@ static int32_t murmur3_32(const unsigned char *data, size_t length, uint32_t see
 	return -(int32_t)(UINT32_MAX - hash) - 1;
 }
 
+#ifndef CLASSICAL_BF_ONLY
 static int backup_filter_contains(const JsonParser *parser, size_t filter,
 								  const double *features, size_t feature_count) {
 	size_t m = (size_t)number_value(parser, required_field(parser, filter, "m"));
@@ -237,7 +242,7 @@ static int backup_filter_contains(const JsonParser *parser, size_t filter,
 	size_t bitmap = required_field(parser, filter, "bitmap");
 	if (m == 0 || m > INT64_MAX || n <= 0 || array_length(parser, bitmap) != m)
 		fail("invalid backup Bloom filter dimensions");
-	size_t hash_count = (size_t)(((double)m / n) * log(2.0));
+	size_t hash_count = (size_t)ceil(((double)m / n) * log(2.0));
 
 	/* build_lbf.py loads float32 data, so Python hashes the float32 bytes. */
 	float *key = malloc(feature_count * sizeof(*key));
@@ -262,11 +267,12 @@ static int backup_filter_contains(const JsonParser *parser, size_t filter,
 	free(key);
 	return 1;
 }
+#endif
 
 static char *read_file(const char *path, size_t *length) {
 	FILE *file = fopen(path, "rb");
 	if (file == NULL) {
-		fprintf(stderr, "read_lbf: cannot open '%s': %s\n", path, strerror(errno));
+		fprintf(stderr, "%s: cannot open '%s': %s\n", LBF_PROGRAM_NAME, path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 	if (fseek(file, 0, SEEK_END) != 0) fail("cannot seek JSON file");
@@ -289,7 +295,7 @@ static size_t parse_csv_features(char *line, double *features, size_t expected,
 		while (*cursor == ' ' || *cursor == '\t') cursor++;
 		if (*cursor == '\0' || *cursor == '\r' || *cursor == '\n') break;
 		if (count == expected) {
-			fprintf(stderr, "read_lbf: too many columns on CSV line %zu\n", line_number);
+			fprintf(stderr, "%s: too many columns on CSV line %zu\n", LBF_PROGRAM_NAME, line_number);
 			exit(EXIT_FAILURE);
 		}
 
@@ -299,7 +305,8 @@ static size_t parse_csv_features(char *line, double *features, size_t expected,
 		errno = 0;
 		double value = strtod(cursor, &end);
 		if (errno != 0 || end == cursor || !isfinite(value)) {
-			fprintf(stderr, "read_lbf: invalid numeric value on CSV line %zu, column %zu\n",
+			fprintf(stderr, "%s: invalid numeric value on CSV line %zu, column %zu\n",
+					LBF_PROGRAM_NAME,
 					line_number, count + 1);
 			exit(EXIT_FAILURE);
 		}
@@ -307,7 +314,7 @@ static size_t parse_csv_features(char *line, double *features, size_t expected,
 		while (*cursor == ' ' || *cursor == '\t') cursor++;
 		if (quoted) {
 			if (*cursor != '"') {
-				fprintf(stderr, "read_lbf: malformed quoted value on CSV line %zu\n", line_number);
+				fprintf(stderr, "%s: malformed quoted value on CSV line %zu\n", LBF_PROGRAM_NAME, line_number);
 				exit(EXIT_FAILURE);
 			}
 			cursor++;
@@ -322,20 +329,21 @@ static size_t parse_csv_features(char *line, double *features, size_t expected,
 		if (*cursor == '\r') cursor++;
 		if (*cursor == '\n') cursor++;
 		if (*cursor != '\0') {
-			fprintf(stderr, "read_lbf: unexpected character on CSV line %zu\n", line_number);
+			fprintf(stderr, "%s: unexpected character on CSV line %zu\n", LBF_PROGRAM_NAME, line_number);
 			exit(EXIT_FAILURE);
 		}
 		break;
 	}
 
 	if (count != expected) {
-		fprintf(stderr, "read_lbf: expected %zu columns but found %zu on CSV line %zu\n",
-				expected, count, line_number);
+		fprintf(stderr, "%s: expected %zu columns but found %zu on CSV line %zu\n",
+				LBF_PROGRAM_NAME, expected, count, line_number);
 		exit(EXIT_FAILURE);
 	}
 	return count;
 }
 
+#ifndef CLASSICAL_BF_ONLY
 static int predict_case(const JsonParser *parser, size_t root, size_t coef_row,
 					size_t intercept, size_t classes,
 					size_t feature_count, const double *features, double *score_out) {
@@ -357,33 +365,37 @@ static int predict_case(const JsonParser *parser, size_t root, size_t coef_row,
 	*score_out = score;
 	return predicted;
 }
+#endif
 
-static void usage(const char *program) {
+#ifndef READ_LBF_NO_MAIN
+static void read_lbf_usage(const char *program) {
 	fprintf(stderr, "Usage: %s MODEL.json KEYS.csv NONKEYS.csv N_KEYS N_NONKEYS\n"
 					"Reads a learnedbf.LBF export with a ScoredLinearSVC, checks that the "
 					"first N_KEYS keys are predicted positive and prints the false positive "
 					"ratio on the first N_NONKEYS non-keys (CSV header rows are skipped).\n",
 			program);
 }
+#endif
 
 static size_t parse_count(const char *text, const char *name) {
 	char *end = NULL;
 	errno = 0;
 	unsigned long long value = strtoull(text, &end, 10);
 	if (errno != 0 || end == text || *end != '\0' || text[0] == '-' || value == 0) {
-		fprintf(stderr, "read_lbf: %s must be a positive integer\n", name);
+		fprintf(stderr, "%s: %s must be a positive integer\n", LBF_PROGRAM_NAME, name);
 		exit(EXIT_FAILURE);
 	}
 	return (size_t)value;
 }
 
 /* Reads exactly wanted rows; returns how many were predicted positive. */
+#ifndef CLASSICAL_BF_ONLY
 static size_t count_positives(const char *path, const JsonParser *parser, size_t root,
 							  size_t coef_row, size_t intercept, size_t classes,
 							  size_t feature_count, double *features, size_t wanted) {
 	FILE *cases = fopen(path, "r");
 	if (cases == NULL) {
-		fprintf(stderr, "read_lbf: cannot open '%s': %s\n", path, strerror(errno));
+		fprintf(stderr, "%s: cannot open '%s': %s\n", LBF_PROGRAM_NAME, path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 	char *line = NULL;
@@ -412,9 +424,11 @@ static size_t count_positives(const char *path, const JsonParser *parser, size_t
 	fclose(cases);
 	return positives;
 }
+#endif
 
+#ifndef READ_LBF_NO_MAIN
 int main(int argc, char **argv) {
-	if (argc != 6) { usage(argv[0]); return EXIT_FAILURE; }
+	if (argc != 6) { read_lbf_usage(argv[0]); return EXIT_FAILURE; }
 	size_t key_total = parse_count(argv[4], "N_KEYS");
 	size_t nonkey_total = parse_count(argv[5], "N_NONKEYS");
 
@@ -459,3 +473,4 @@ int main(int argc, char **argv) {
 	free(json);
 	return EXIT_SUCCESS;
 }
+#endif

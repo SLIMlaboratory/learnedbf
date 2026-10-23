@@ -397,6 +397,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
 
             if self.threshold is None:
                 raise ValueError('No threshold value is feasible.')
+            print(f'-----New optimal threshold found: {self.threshold}-----')
         else:
             if self.backup_filter_size is None:
                 raise ValueError('threshold set in LBF'
