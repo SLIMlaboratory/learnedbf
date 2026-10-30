@@ -69,8 +69,7 @@ if __name__ == "__main__":
     X = np.vstack((X_keys, X_nonkeys))
     y = np.concatenate((y_keys, y_nonkeys)).astype(bool)
 
-    hyper={'C':[0.01, 0.1, 1, 5, 10]}
-    hyper={'C':[1]}
+    hyper={'C':[0.01, 1, 10]}
     
     learned_filter = LBF(
         epsilon=args.epsilon,
