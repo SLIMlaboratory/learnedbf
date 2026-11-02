@@ -25,44 +25,26 @@ static const char *option_value(int argc, char **argv, const char *option) {
 	return NULL;
 }
 
-static int classical_filter_contains(const JsonParser *parser, size_t filter,
-									 const double *features, size_t feature_count) {
-	double raw_m = number_value(parser, required_field(parser, filter, "m"));
-	double n = number_value(parser, required_field(parser, filter, "n"));
-	if (raw_m < 1.0 || raw_m > (double)INT64_MAX || floor(raw_m) != raw_m || n <= 0.0)
-		fail("invalid classical Bloom filter dimensions");
-	size_t m = (size_t)raw_m;
-	size_t bitmap = required_field(parser, filter, "bitmap");
-	if (array_length(parser, bitmap) != m)
-		fail("classical Bloom filter bitmap length does not match m");
-	size_t hash_count = (size_t)ceil(((double)m / n) * log(2.0));
-	if (hash_count == 0) fail("invalid classical Bloom filter hash count");
-
-	/* The Python test reads CSV values as float32 before hashing their bytes. */
-	float *key = malloc(feature_count * sizeof(*key));
-	if (key == NULL) fail("out of memory hashing key");
+static int classical_filter_contains(const DecodedBloomFilter *filter,
+									 const double *features, size_t feature_count,
+									 float *key) {
 	for (size_t i = 0; i < feature_count; i++) key[i] = (float)features[i];
 
-	for (size_t seed = 0; seed < hash_count; seed++) {
+	for (size_t seed = 0; seed < filter->hash_count; seed++) {
 		int32_t hash = murmur3_32((const unsigned char *)key,
 								  feature_count * sizeof(*key), (uint32_t)seed);
-		int64_t remainder = (int64_t)hash % (int64_t)m;
-		if (remainder < 0) remainder += (int64_t)m;
-		size_t bit = array_get(parser, bitmap, (size_t)remainder);
-		if (token_equals(parser, bit, "false") || token_equals(parser, bit, "0")) {
-			free(key);
-			return 0;
-		}
-		if (!token_equals(parser, bit, "true") && !token_equals(parser, bit, "1"))
-			fail("invalid value in classical Bloom filter bitmap");
+		int64_t remainder = (int64_t)hash % (int64_t)filter->m;
+		if (remainder < 0) remainder += (int64_t)filter->m;
+		if (!filter->bits[(size_t)remainder]) return 0;
 	}
-	free(key);
 	return 1;
 }
 
-static size_t count_classical_positives(const char *path, const JsonParser *parser,
-										size_t filter, size_t feature_count,
-										double *features, size_t wanted) {
+static size_t count_classical_positives(const char *path,
+										const DecodedBloomFilter *filter,
+										size_t feature_count, double *features,
+										float *query_key, size_t wanted,
+										QueryTiming *query_timing) {
 	FILE *cases = fopen(path, "r");
 	if (cases == NULL) {
 		fprintf(stderr, "test_bf: cannot open '%s': %s\n", path, strerror(errno));
@@ -81,7 +63,12 @@ static size_t count_classical_positives(const char *path, const JsonParser *pars
 			nonspace++;
 		if (line_length == 0 || *nonspace == '\0') continue;
 		parse_csv_features(line, features, feature_count, line_number);
-		positives += classical_filter_contains(parser, filter, features, feature_count) ? 1 : 0;
+		uint64_t query_start_ns = monotonic_time_ns();
+		int contains = classical_filter_contains(filter, features,
+												 feature_count, query_key);
+		query_timing->elapsed_ns += monotonic_time_ns() - query_start_ns;
+		query_timing->query_count++;
+		positives += contains ? 1 : 0;
 		rows++;
 	}
 	if (ferror(cases)) fail("error reading CSV cases");
@@ -144,20 +131,27 @@ int main(int argc, char **argv) {
 	size_t filter_class = required_field(&parser, root, "filter_class");
 	if (!token_equals(&parser, filter_class, "ClassicalBloomFilterImpl"))
 		fail("only ClassicalBloomFilterImpl JSON filters are supported");
-	size_t filter_size = (size_t)number_value(
-		&parser, required_field(&parser, root, "m"));
+	DecodedBloomFilter filter = decode_bloom_filter(&parser, root);
 	size_t feature_count = csv_feature_count(nonkeys_path);
 	double *features = malloc(feature_count * sizeof(*features));
 	if (features == NULL) fail("out of memory allocating features");
-	size_t false_positives = count_classical_positives(
-		nonkeys_path, &parser, root, feature_count, features, nonkey_total);
-	printf("False positive rate: %.6f.\n",
-		   (double)false_positives / (double)nonkey_total);
-	printf("Size of the classical Bloom filter: %zu bits.\n", filter_size);
-
-	free(features);
+	float *query_key = malloc(feature_count * sizeof(*query_key));
+	if (query_key == NULL) fail("out of memory allocating query key");
 	free(parser.tokens);
 	free(json);
+	QueryTiming query_timing = {0, 0};
+	size_t false_positives = count_classical_positives(
+		nonkeys_path, &filter, feature_count, features, query_key,
+		nonkey_total, &query_timing);
+	printf("False positive rate: %.6f.\n",
+		   (double)false_positives / (double)nonkey_total);
+	printf("Size of the classical Bloom filter: %zu bits.\n", filter.m);
+	printf("QUERY_TIME_NS=%llu\n", (unsigned long long)query_timing.elapsed_ns);
+	printf("QUERY_COUNT=%zu\n", query_timing.query_count);
+
+	free(features);
+	free(query_key);
+	free_decoded_bloom_filter(&filter);
 	free(model_path);
 	return EXIT_SUCCESS;
 }

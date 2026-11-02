@@ -55,42 +55,28 @@ int main(int argc, char **argv) {
 	if (parser.position != parser.length || parser.tokens[root].type != JSON_OBJECT)
 		fail("input must contain one JSON object");
 
-	size_t classifier = required_field(&parser, root, "classifier");
-	size_t class_name = required_field(&parser, root, "classifier_class");
-	if (!token_equals(&parser, class_name, "ScoredLinearSVC"))
-		fail("only LBF exports using ScoredLinearSVC are supported");
-	size_t coef = required_field(&parser, classifier, "coef_");
-	size_t coef_row = array_get(&parser, coef, 0);
-	size_t feature_count = array_length(&parser, coef_row);
-	size_t n_features = (size_t)number_value(
-		&parser, required_field(&parser, classifier, "n_features_in_"));
-	if (feature_count == 0 || feature_count != n_features)
-		fail("invalid serialized classifier feature count");
-
-	double *features = malloc(feature_count * sizeof(*features));
+	LearnedModel model = decode_learned_model(&parser, root);
+	free(parser.tokens);
+	free(json);
+	double *features = malloc(model.feature_count * sizeof(*features));
 	if (features == NULL) fail("out of memory allocating features");
-	size_t intercept = required_field(&parser, classifier, "intercept_");
-	size_t classes = required_field(&parser, classifier, "classes_");
+	float *query_key = malloc(model.feature_count * sizeof(*query_key));
+	if (query_key == NULL) fail("out of memory allocating query key");
+	QueryTiming query_timing = {0, 0};
 	size_t false_positives = count_positives(
-		nonkeys_path, &parser, root, coef_row, intercept, classes,
-		feature_count, features, nonkey_total);
-
-	double classifier_size = number_value(
-		&parser, required_field(&parser, classifier, "float_size")) *
-		(double)(feature_count + 1);
-	double backup_size = 0.0;
-	size_t backup = object_get(&parser, root, "backup_filter");
-	if (backup != SIZE_MAX && !token_equals(&parser, backup, "null"))
-		backup_size = number_value(&parser, required_field(&parser, backup, "m"));
+		nonkeys_path, &model, features, query_key, nonkey_total, &query_timing);
 
 	printf("False positive rate: %.6f.\n",
 		   (double)false_positives / (double)nonkey_total);
 	printf("Size of the learned Bloom filter: %.0f bits.\n",
-		   classifier_size + backup_size);
+		   model.classifier_size_bits +
+		   (model.has_backup_filter ? (double)model.backup_filter.m : 0.0));
+	printf("QUERY_TIME_NS=%llu\n", (unsigned long long)query_timing.elapsed_ns);
+	printf("QUERY_COUNT=%zu\n", query_timing.query_count);
 
 	free(features);
-	free(parser.tokens);
-	free(json);
+	free(query_key);
+	free_learned_model(&model);
 	free(model_path);
 	return EXIT_SUCCESS;
 }

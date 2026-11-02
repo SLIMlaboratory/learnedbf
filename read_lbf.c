@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <time.h>
 
 #ifndef LBF_PROGRAM_NAME
 #define LBF_PROGRAM_NAME "read_lbf"
@@ -39,9 +40,39 @@ typedef struct {
 	size_t capacity;
 } JsonParser;
 
+typedef struct {
+	uint64_t elapsed_ns;
+	size_t query_count;
+} QueryTiming;
+
+typedef struct {
+	size_t m;
+	size_t hash_count;
+	uint8_t *bits;
+} DecodedBloomFilter;
+
+typedef struct {
+	size_t feature_count;
+	double *coefficients;
+	double intercept;
+	double threshold;
+	int reverse_decision;
+	DecodedBloomFilter backup_filter;
+	int has_backup_filter;
+	double classifier_size_bits;
+} LearnedModel;
+
 static void fail(const char *message) {
 	fprintf(stderr, "%s: %s\n", LBF_PROGRAM_NAME, message);
 	exit(EXIT_FAILURE);
+}
+
+static uint64_t monotonic_time_ns(void) {
+	struct timespec timestamp;
+	if (clock_gettime(CLOCK_MONOTONIC, &timestamp) != 0)
+		fail("could not read monotonic clock");
+	return (uint64_t)timestamp.tv_sec * UINT64_C(1000000000) +
+		   (uint64_t)timestamp.tv_nsec;
 }
 
 static void skip_whitespace(JsonParser *parser) {
@@ -159,6 +190,7 @@ static size_t object_get(const JsonParser *parser, size_t object, const char *ke
 	return SIZE_MAX;
 }
 
+#ifndef CLASSICAL_BF_ONLY
 static size_t array_get(const JsonParser *parser, size_t array, size_t wanted) {
 	JsonToken container = parser->tokens[array];
 	if (container.type != JSON_ARRAY) return SIZE_MAX;
@@ -169,6 +201,7 @@ static size_t array_get(const JsonParser *parser, size_t array, size_t wanted) {
 	}
 	return index < container.next ? index : SIZE_MAX;
 }
+#endif
 
 static size_t required_field(const JsonParser *parser, size_t object,
 							 const char *name) {
@@ -198,6 +231,47 @@ static size_t array_length(const JsonParser *parser, size_t index) {
 	for (size_t item = index + 1; item < parser->tokens[index].next;
 		 item = parser->tokens[item].next) length++;
 	return length;
+}
+
+static DecodedBloomFilter decode_bloom_filter(const JsonParser *parser,
+											 size_t filter) {
+	double raw_m = number_value(parser, required_field(parser, filter, "m"));
+	double n = number_value(parser, required_field(parser, filter, "n"));
+	if (raw_m < 1.0 || raw_m > (double)INT64_MAX || floor(raw_m) != raw_m || n <= 0.0)
+		fail("invalid Bloom filter dimensions");
+	size_t m = (size_t)raw_m;
+	size_t bitmap = required_field(parser, filter, "bitmap");
+	if (array_length(parser, bitmap) != m)
+		fail("Bloom filter bitmap length does not match m");
+
+	uint8_t *bits = malloc(m * sizeof(*bits));
+	if (bits == NULL) fail("out of memory decoding Bloom filter bitmap");
+	size_t bit_token = bitmap + 1;
+	for (size_t i = 0; i < m; i++) {
+		if (token_equals(parser, bit_token, "true") ||
+			token_equals(parser, bit_token, "1")) {
+			bits[i] = 1;
+		} else if (token_equals(parser, bit_token, "false") ||
+				   token_equals(parser, bit_token, "0")) {
+			bits[i] = 0;
+		} else {
+			free(bits);
+			fail("invalid value in Bloom filter bitmap");
+		}
+		bit_token = parser->tokens[bit_token].next;
+	}
+
+	size_t hash_count = (size_t)ceil(((double)m / n) * log(2.0));
+	if (hash_count == 0) {
+		free(bits);
+		fail("invalid Bloom filter hash count");
+	}
+	return (DecodedBloomFilter){m, hash_count, bits};
+}
+
+static void free_decoded_bloom_filter(DecodedBloomFilter *filter) {
+	free(filter->bits);
+	filter->bits = NULL;
 }
 
 /*
@@ -235,37 +309,92 @@ static int32_t murmur3_32(const unsigned char *data, size_t length, uint32_t see
 }
 
 #ifndef CLASSICAL_BF_ONLY
-static int backup_filter_contains(const JsonParser *parser, size_t filter,
-								  const double *features, size_t feature_count) {
-	size_t m = (size_t)number_value(parser, required_field(parser, filter, "m"));
-	double n = number_value(parser, required_field(parser, filter, "n"));
-	size_t bitmap = required_field(parser, filter, "bitmap");
-	if (m == 0 || m > INT64_MAX || n <= 0 || array_length(parser, bitmap) != m)
-		fail("invalid backup Bloom filter dimensions");
-	size_t hash_count = (size_t)ceil(((double)m / n) * log(2.0));
+static LearnedModel decode_learned_model(const JsonParser *parser, size_t root) {
+	size_t classifier = required_field(parser, root, "classifier");
+	size_t class_name = required_field(parser, root, "classifier_class");
+	if (!token_equals(parser, class_name, "ScoredLinearSVC"))
+		fail("only LBF exports using ScoredLinearSVC are supported");
 
-	/* build_lbf.py loads float32 data, so Python hashes the float32 bytes. */
-	float *key = malloc(feature_count * sizeof(*key));
-	if (key == NULL) fail("out of memory hashing key");
-	for (size_t i = 0; i < feature_count; i++) key[i] = (float)features[i];
+	size_t coef = required_field(parser, classifier, "coef_");
+	size_t coef_row = array_get(parser, coef, 0);
+	size_t feature_count = array_length(parser, coef_row);
+	size_t n_features = (size_t)number_value(
+		parser, required_field(parser, classifier, "n_features_in_"));
+	if (feature_count == 0 || feature_count != n_features)
+		fail("invalid serialized classifier feature count");
 
-	for (size_t seed = 0; seed < hash_count; seed++) {
-		int32_t hash = murmur3_32((const unsigned char *)key,
-									  feature_count * sizeof(*key), (uint32_t)seed);
-		/* Python's mmh3.hash(...) % m uses signed, nonnegative modulo. */
-		int64_t remainder = (int64_t)hash % (int64_t)m;
-		if (remainder < 0) remainder += (int64_t)m;
-		size_t bit = (size_t)remainder;
-		size_t bit_token = array_get(parser, bitmap, bit);
-		if (token_equals(parser, bit_token, "false") || token_equals(parser, bit_token, "0")) {
-			free(key);
-			return 0;
-		}
-		if (!token_equals(parser, bit_token, "true") && !token_equals(parser, bit_token, "1"))
-			fail("invalid value in backup Bloom filter bitmap");
+	double *coefficients = malloc(feature_count * sizeof(*coefficients));
+	if (coefficients == NULL) fail("out of memory decoding classifier coefficients");
+	size_t coefficient_token = coef_row + 1;
+	for (size_t i = 0; i < feature_count; i++) {
+		coefficients[i] = number_value(parser, coefficient_token);
+		coefficient_token = parser->tokens[coefficient_token].next;
 	}
-	free(key);
+
+	size_t intercept = required_field(parser, classifier, "intercept_");
+	size_t classes = required_field(parser, classifier, "classes_");
+	int reverse_decision =
+		token_equals(parser, array_get(parser, classes, 0), "false") ||
+		token_equals(parser, array_get(parser, classes, 0), "0");
+	double classifier_size_bits = number_value(
+		parser, required_field(parser, classifier, "float_size")) *
+		(double)(feature_count + 1);
+
+	LearnedModel model = {
+		.feature_count = feature_count,
+		.coefficients = coefficients,
+		.intercept = number_value(parser, array_get(parser, intercept, 0)),
+		.threshold = number_value(parser, required_field(parser, root, "threshold")),
+		.reverse_decision = reverse_decision,
+		.has_backup_filter = 0,
+		.classifier_size_bits = classifier_size_bits,
+	};
+	size_t backup = object_get(parser, root, "backup_filter");
+	if (backup != SIZE_MAX && !token_equals(parser, backup, "null")) {
+		model.backup_filter = decode_bloom_filter(parser, backup);
+		model.has_backup_filter = 1;
+	}
+	return model;
+}
+
+static void free_learned_model(LearnedModel *model) {
+	free(model->coefficients);
+	model->coefficients = NULL;
+	if (model->has_backup_filter)
+		free_decoded_bloom_filter(&model->backup_filter);
+}
+
+static int bloom_filter_contains(const DecodedBloomFilter *filter,
+								 const double *features, size_t feature_count,
+								 float *key) {
+	for (size_t i = 0; i < feature_count; i++) key[i] = (float)features[i];
+	for (size_t seed = 0; seed < filter->hash_count; seed++) {
+		int32_t hash = murmur3_32((const unsigned char *)key,
+								  feature_count * sizeof(*key), (uint32_t)seed);
+		int64_t remainder = (int64_t)hash % (int64_t)filter->m;
+		if (remainder < 0) remainder += (int64_t)filter->m;
+		if (!filter->bits[(size_t)remainder]) return 0;
+	}
 	return 1;
+}
+
+static int predict_case(const LearnedModel *model, const double *features,
+						float *query_key, double *score_out) {
+	double decision = 0.0;
+	for (size_t i = 0; i < model->feature_count; i++)
+		decision += features[i] * model->coefficients[i];
+	decision += model->intercept;
+	if (model->reverse_decision) decision = -decision;
+
+	/* ScoredLinearSVC.predict_score applies the sigmoid to -decision. */
+	double score = decision >= 0.0 ? exp(-decision) / (1.0 + exp(-decision))
+								   : 1.0 / (1.0 + exp(decision));
+	int predicted = score > model->threshold;
+	if (!predicted && model->has_backup_filter)
+		predicted = bloom_filter_contains(&model->backup_filter, features,
+										  model->feature_count, query_key);
+	*score_out = score;
+	return predicted;
 }
 #endif
 
@@ -343,30 +472,6 @@ static size_t parse_csv_features(char *line, double *features, size_t expected,
 	return count;
 }
 
-#ifndef CLASSICAL_BF_ONLY
-static int predict_case(const JsonParser *parser, size_t root, size_t coef_row,
-					size_t intercept, size_t classes,
-					size_t feature_count, const double *features, double *score_out) {
-	double decision = 0.0;
-	for (size_t i = 0; i < feature_count; i++)
-		decision += features[i] * number_value(parser, array_get(parser, coef_row, i));
-	decision += number_value(parser, array_get(parser, intercept, 0));
-	if (token_equals(parser, array_get(parser, classes, 0), "false") ||
-		token_equals(parser, array_get(parser, classes, 0), "0"))
-		decision = -decision;
-
-	/* ScoredLinearSVC.predict_score applies the sigmoid to -decision. */
-	double score = decision >= 0.0 ? exp(-decision) / (1.0 + exp(-decision))
-								   : 1.0 / (1.0 + exp(decision));
-	int predicted = score > number_value(parser, required_field(parser, root, "threshold"));
-	size_t backup = object_get(parser, root, "backup_filter");
-	if (!predicted && backup != SIZE_MAX && !token_equals(parser, backup, "null"))
-		predicted = backup_filter_contains(parser, backup, features, feature_count);
-	*score_out = score;
-	return predicted;
-}
-#endif
-
 #ifndef READ_LBF_NO_MAIN
 static void read_lbf_usage(const char *program) {
 	fprintf(stderr, "Usage: %s MODEL.json KEYS.csv NONKEYS.csv N_KEYS N_NONKEYS\n"
@@ -390,9 +495,9 @@ static size_t parse_count(const char *text, const char *name) {
 
 /* Reads exactly wanted rows; returns how many were predicted positive. */
 #ifndef CLASSICAL_BF_ONLY
-static size_t count_positives(const char *path, const JsonParser *parser, size_t root,
-							  size_t coef_row, size_t intercept, size_t classes,
-							  size_t feature_count, double *features, size_t wanted) {
+static size_t count_positives(const char *path, const LearnedModel *model,
+							  double *features, float *query_key, size_t wanted,
+							  QueryTiming *query_timing) {
 	FILE *cases = fopen(path, "r");
 	if (cases == NULL) {
 		fprintf(stderr, "%s: cannot open '%s': %s\n", LBF_PROGRAM_NAME, path, strerror(errno));
@@ -409,10 +514,13 @@ static size_t count_positives(const char *path, const JsonParser *parser, size_t
 		while (*nonspace == ' ' || *nonspace == '\t' || *nonspace == '\r' || *nonspace == '\n')
 			nonspace++;
 		if (line_length == 0 || *nonspace == '\0') continue;
-		parse_csv_features(line, features, feature_count, line_number);
+		parse_csv_features(line, features, model->feature_count, line_number);
 		double score;
-		positives += predict_case(parser, root, coef_row, intercept,
-								  classes, feature_count, features, &score) ? 1 : 0;
+		uint64_t query_start_ns = monotonic_time_ns();
+		int predicted = predict_case(model, features, query_key, &score);
+		query_timing->elapsed_ns += monotonic_time_ns() - query_start_ns;
+		query_timing->query_count++;
+		positives += predicted ? 1 : 0;
 		rows++;
 	}
 	if (ferror(cases)) fail("error reading CSV cases");
@@ -440,37 +548,33 @@ int main(int argc, char **argv) {
 	if (parser.position != parser.length || parser.tokens[root].type != JSON_OBJECT)
 		fail("input must contain one JSON object");
 
-	size_t classifier = required_field(&parser, root, "classifier");
-	size_t class_name = required_field(&parser, root, "classifier_class");
-	if (!token_equals(&parser, class_name, "ScoredLinearSVC"))
-		fail("only LBF exports using ScoredLinearSVC are supported");
-
-	size_t coef = required_field(&parser, classifier, "coef_");
-	size_t coef_row = array_get(&parser, coef, 0);
-	size_t feature_count = array_length(&parser, coef_row);
-	size_t n_features = (size_t)number_value(&parser,
-						 required_field(&parser, classifier, "n_features_in_"));
-	if (feature_count != n_features) fail("invalid serialized classifier feature count");
-
-	double *features = malloc(feature_count * sizeof(*features));
+	LearnedModel model = decode_learned_model(&parser, root);
+	free(parser.tokens);
+	free(json);
+	double *features = malloc(model.feature_count * sizeof(*features));
 	if (features == NULL) fail("out of memory allocating features");
-	size_t intercept = required_field(&parser, classifier, "intercept_");
-	size_t classes = required_field(&parser, classifier, "classes_");
-	size_t key_hits = count_positives(argv[2], &parser, root, coef_row, intercept,
-									  classes, feature_count, features, key_total);
+	float *query_key = malloc(model.feature_count * sizeof(*query_key));
+	if (query_key == NULL) fail("out of memory allocating query key");
+	QueryTiming key_timing = {0, 0};
+	QueryTiming nonkey_timing = {0, 0};
+	size_t key_hits = count_positives(argv[2], &model, features, query_key,
+									  key_total, &key_timing);
 	if (key_hits != key_total) {
 		fprintf(stderr, "read_lbf: %zu of %zu keys were not predicted as keys\n",
 				key_total - key_hits, key_total);
+		free(features);
+		free(query_key);
+		free_learned_model(&model);
 		return EXIT_FAILURE;
 	}
-	size_t false_positives = count_positives(argv[3], &parser, root, coef_row, intercept,
-											 classes, feature_count, features, nonkey_total);
+	size_t false_positives = count_positives(argv[3], &model, features, query_key,
+												 nonkey_total, &nonkey_timing);
 	printf("keys: %zu, all predicted positive\n", key_total);
 	printf("non-keys: %zu, false positives: %zu, FPR: %.17g\n", nonkey_total,
 		   false_positives, (double)false_positives / (double)nonkey_total);
 	free(features);
-	free(parser.tokens);
-	free(json);
+	free(query_key);
+	free_learned_model(&model);
 	return EXIT_SUCCESS;
 }
 #endif

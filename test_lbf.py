@@ -1,5 +1,6 @@
 from learnedbf import LBF
 import numpy as np
+import time
 
 if __name__ == "__main__":
     # using argc and argv, fecth csv paths and other params from command line
@@ -26,18 +27,24 @@ if __name__ == "__main__":
         # read one nonkey at a time and probe the learned filter, counting false positives
         false_positives = 0
         total_probed = 0
+        query_time_ns = 0
 
         next(f).decode().strip("\n").strip("\r") # skip header
         while total_probed < args.n_test_nonkeys:
             row = next(f).decode().strip("\n").strip("\r")
             nonkey = [np.float32(x) for x in row.split(",")]
 
-            if learned_filter.predict([nonkey])[0] == True:
+            query_start_ns = time.perf_counter_ns()
+            prediction = learned_filter.predict([nonkey])
+            query_time_ns += time.perf_counter_ns() - query_start_ns
+            if prediction[0] == True:
                 false_positives += 1
             total_probed += 1
     
     fpr = false_positives / total_probed
     print(f"False positive rate: {fpr:.6f}.")
+    print(f"QUERY_TIME_NS={query_time_ns}")
+    print(f"QUERY_COUNT={total_probed}")
 
     size = sum(learned_filter.get_size().values())
     print(f"Size of the learned Bloom filter: {size} bits.")
