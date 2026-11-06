@@ -69,16 +69,19 @@ if __name__ == "__main__":
     X = np.vstack((X_keys, X_nonkeys))
     y = np.concatenate((y_keys, y_nonkeys)).astype(bool)
 
-    hyper={'C':[0.01, 1, 10]}
+    hyper={'C':[0.01, 0.1, 1, 5, 10]}
     
     learned_filter = LBF(
         epsilon=args.epsilon,
+        scoring = 'accuracy',
+        num_candidate_thresholds=args.n_keys,
         classifier=ScoredLinearSVC(max_iter=15000, random_state=42),
-        threshold_test_size=0.2,
+        threshold_test_size=0.45,
         hyperparameters=hyper
     )
+    
     learned_filter.fit(X, y)
-
+    print(f"imperparametro C scelto: {learned_filter.classifier.C}")
     learned_filter.export(f"{args.file_name}.learned.json")
 
     fpr_nonkeys = learned_filter.estimate_FPR(X_test_nonkeys)

@@ -1,0 +1,130 @@
+#!/bin/bash
+
+MEASUREMENT=${MEASUREMENT:-${1:-time}}
+case "$MEASUREMENT" in
+    time|vtune|both) ;;
+    *) echo "Usage: $0 [time|vtune|both]" >&2; exit 2 ;;
+esac
+
+PYTHON=${PYTHON:-python}
+if [[ "$PYTHON" == "python" && -x .venv/bin/python ]]; then
+    PYTHON=.venv/bin/python
+fi
+
+if [[ "$MEASUREMENT" == "vtune" || "$MEASUREMENT" == "both" ]]; then
+    source /opt/intel/oneapi/setvars.sh
+fi
+
+KEY_CSV="data/url_KEYS_keys.csv"
+NONKEY_CSV="data/url_NONKEYS_nonkeys_part1.csv.csv"
+
+query_metrics() {
+    awk -F= '
+        $1 == "QUERY_TIME_NS" { query_time_ns = $2 }
+        $1 == "QUERY_COUNT" { query_count = $2 }
+        END {
+            if (query_count == 0) exit 1
+            printf "%.9f,%.6f\n", query_time_ns / 1000000000, query_time_ns / query_count / 1000
+        }
+    ' "$1"
+}
+
+export EPSILON=0.05
+
+rm -f results.csv
+echo "Language, Filter, N_KEYS, N_NONKEYS, Filter_Size_KB, Elapsed_Time_s, Query_Time_s, Query_Avg_us, Peak_RSS_KB, VTune_Net_Allocation_Delta_KB" > results.csv
+
+for N_KEYS in 10000 20000 30000 40000 50000 60000 70000 76989 ; do
+    export N_KEYS
+    export N_NONKEYS=$(( N_KEYS * 3 / 2 ))
+    export N_TEST_NONKEYS=$N_NONKEYS
+
+    export FILE_NAME="filter_${N_KEYS}_${N_NONKEYS}_${EPSILON}"
+
+    if [[ -f "${FILE_NAME}.learned.json" && -f "${FILE_NAME}.classical.json" ]]; then
+       echo "Using existing learned and classical filters for $N_KEYS keys."
+    else
+       echo "Building a classical and learned Bloom filter with $N_KEYS keys and $N_NONKEYS non-keys..."
+       "$PYTHON" build_lbf.py --key_csv_path "$KEY_CSV" --nonkey_csv_path "$NONKEY_CSV" --n_keys $N_KEYS --n_nonkeys $N_NONKEYS --n_test_nonkeys $N_TEST_NONKEYS --file_name $FILE_NAME --epsilon $EPSILON
+    fi
+
+    echo "Building C test programs..."
+    gcc -std=c11 -O2 -Wall -Wextra -Wpedantic test_lbf.c -lm -o test_lbf
+    gcc -std=c11 -O2 -Wall -Wextra -Wpedantic test_bf.c -lm -o test_bf
+
+    PEAK_RSS_PYTHON_LEARNED_KB=""
+    PEAK_RSS_PYTHON_CLASSICAL_KB=""
+    PEAK_RSS_C_LEARNED_KB=""
+    PEAK_RSS_C_CLASSICAL_KB=""
+    ELAPSED_TIME_PYTHON_LEARNED_S=""
+    ELAPSED_TIME_PYTHON_CLASSICAL_S=""
+    ELAPSED_TIME_C_LEARNED_S=""
+    ELAPSED_TIME_C_CLASSICAL_S=""
+    QUERY_TIME_PYTHON_LEARNED_S=""
+    QUERY_TIME_PYTHON_CLASSICAL_S=""
+    QUERY_TIME_C_LEARNED_S=""
+    QUERY_TIME_C_CLASSICAL_S=""
+    QUERY_AVG_PYTHON_LEARNED_US=""
+    QUERY_AVG_PYTHON_CLASSICAL_US=""
+    QUERY_AVG_C_LEARNED_US=""
+    QUERY_AVG_C_CLASSICAL_US=""
+    VTUNE_PYTHON_LEARNED_KB=""
+    VTUNE_PYTHON_CLASSICAL_KB=""
+    VTUNE_C_LEARNED_KB=""
+    VTUNE_C_CLASSICAL_KB=""
+
+    if [[ "$MEASUREMENT" == "time" || "$MEASUREMENT" == "both" ]]; then
+        echo "Measuring elapsed time and peak RSS with GNU time..."
+        /usr/bin/time -f '%e %M' -o "${FILE_NAME}.python_learned.time_rss" "$PYTHON" test_lbf.py --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME > "${FILE_NAME}.python_learned.query"
+        /usr/bin/time -f '%e %M' -o "${FILE_NAME}.python_classical.time_rss" "$PYTHON" test_bf.py --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME > "${FILE_NAME}.python_classical.query"
+        /usr/bin/time -f '%e %M' -o "${FILE_NAME}.c_learned.time_rss" ./test_lbf --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME > "${FILE_NAME}.c_learned.query"
+        /usr/bin/time -f '%e %M' -o "${FILE_NAME}.c_classical.time_rss" ./test_bf --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME > "${FILE_NAME}.c_classical.query"
+
+        cat "${FILE_NAME}.python_learned.query" "${FILE_NAME}.python_classical.query" \
+            "${FILE_NAME}.c_learned.query" "${FILE_NAME}.c_classical.query"
+
+        IFS=, read -r QUERY_TIME_PYTHON_LEARNED_S QUERY_AVG_PYTHON_LEARNED_US < <(query_metrics "${FILE_NAME}.python_learned.query") || exit 1
+        IFS=, read -r QUERY_TIME_PYTHON_CLASSICAL_S QUERY_AVG_PYTHON_CLASSICAL_US < <(query_metrics "${FILE_NAME}.python_classical.query") || exit 1
+        IFS=, read -r QUERY_TIME_C_LEARNED_S QUERY_AVG_C_LEARNED_US < <(query_metrics "${FILE_NAME}.c_learned.query") || exit 1
+        IFS=, read -r QUERY_TIME_C_CLASSICAL_S QUERY_AVG_C_CLASSICAL_US < <(query_metrics "${FILE_NAME}.c_classical.query") || exit 1
+
+        ELAPSED_TIME_PYTHON_LEARNED_S=$(awk '{printf "%.3f", $1}' "${FILE_NAME}.python_learned.time_rss")
+        ELAPSED_TIME_PYTHON_CLASSICAL_S=$(awk '{printf "%.3f", $1}' "${FILE_NAME}.python_classical.time_rss")
+        ELAPSED_TIME_C_LEARNED_S=$(awk '{printf "%.3f", $1}' "${FILE_NAME}.c_learned.time_rss")
+        ELAPSED_TIME_C_CLASSICAL_S=$(awk '{printf "%.3f", $1}' "${FILE_NAME}.c_classical.time_rss")
+        PEAK_RSS_PYTHON_LEARNED_KB=$(awk '{printf "%.2f", $2 * 1.024}' "${FILE_NAME}.python_learned.time_rss")
+        PEAK_RSS_PYTHON_CLASSICAL_KB=$(awk '{printf "%.2f", $2 * 1.024}' "${FILE_NAME}.python_classical.time_rss")
+        PEAK_RSS_C_LEARNED_KB=$(awk '{printf "%.2f", $2 * 1.024}' "${FILE_NAME}.c_learned.time_rss")
+        PEAK_RSS_C_CLASSICAL_KB=$(awk '{printf "%.2f", $2 * 1.024}' "${FILE_NAME}.c_classical.time_rss")
+    fi
+
+    if [[ "$MEASUREMENT" == "vtune" || "$MEASUREMENT" == "both" ]]; then
+        VTUNE_DIR="vtune-results_${N_KEYS}_${N_NONKEYS}_${EPSILON}"
+        rm -rf "${VTUNE_DIR}_python_learned_space" "${VTUNE_DIR}_python_classical_space" \
+               "${VTUNE_DIR}_c_learned_space" "${VTUNE_DIR}_c_classical_space"
+
+        echo "Collecting VTune memory-consumption results..."
+        vtune -q -collect memory-consumption -result-dir "${VTUNE_DIR}_python_learned_space" -- "$PYTHON" test_lbf.py --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME
+        vtune -q -collect memory-consumption -result-dir "${VTUNE_DIR}_python_classical_space" -- "$PYTHON" test_bf.py --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME
+        vtune -q -collect memory-consumption -result-dir "${VTUNE_DIR}_c_learned_space" -- ./test_lbf --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME
+        vtune -q -collect memory-consumption -result-dir "${VTUNE_DIR}_c_classical_space" -- ./test_bf --nonkey_csv_path "$NONKEY_CSV" --n_test_nonkeys $N_TEST_NONKEYS --filter_file_name $FILE_NAME
+
+        vtune -report hotspots -result-dir "${VTUNE_DIR}_python_learned_space" -format csv -csv-delimiter comma -report-output hotspots_python_learned.csv
+        vtune -report hotspots -result-dir "${VTUNE_DIR}_python_classical_space" -format csv -csv-delimiter comma -report-output hotspots_python_classical.csv
+        vtune -report hotspots -result-dir "${VTUNE_DIR}_c_learned_space" -format csv -csv-delimiter comma -report-output hotspots_c_learned.csv
+        vtune -report hotspots -result-dir "${VTUNE_DIR}_c_classical_space" -format csv -csv-delimiter comma -report-output hotspots_c_classical.csv
+
+        VTUNE_PYTHON_LEARNED_KB=$(awk -F',' 'NR>1 {sum += $2} END {printf "%.2f", sum/1000}' hotspots_python_learned.csv)
+        VTUNE_PYTHON_CLASSICAL_KB=$(awk -F',' 'NR>1 {sum += $2} END {printf "%.2f", sum/1000}' hotspots_python_classical.csv)
+        VTUNE_C_LEARNED_KB=$(awk -F',' 'NR>1 {sum += $2} END {printf "%.2f", sum/1000}' hotspots_c_learned.csv)
+        VTUNE_C_CLASSICAL_KB=$(awk -F',' 'NR>1 {sum += $2} END {printf "%.2f", sum/1000}' hotspots_c_classical.csv)
+    fi
+
+    LEARNED_SIZE_KB=$(awk '$1 == "size:" {printf "%.2f", $2 / 8000}' "${FILE_NAME}.learned.fpr")
+    CLASSICAL_SIZE_KB=$(awk '$1 == "size:" {printf "%.2f", $2 / 8000}' "${FILE_NAME}.classical.fpr")
+    echo "python, learned, ${N_KEYS}, ${N_NONKEYS}, ${LEARNED_SIZE_KB}, ${ELAPSED_TIME_PYTHON_LEARNED_S}, ${QUERY_TIME_PYTHON_LEARNED_S}, ${QUERY_AVG_PYTHON_LEARNED_US}, ${PEAK_RSS_PYTHON_LEARNED_KB}, ${VTUNE_PYTHON_LEARNED_KB}" >> results.csv
+    echo "python, classical, ${N_KEYS}, ${N_NONKEYS}, ${CLASSICAL_SIZE_KB}, ${ELAPSED_TIME_PYTHON_CLASSICAL_S}, ${QUERY_TIME_PYTHON_CLASSICAL_S}, ${QUERY_AVG_PYTHON_CLASSICAL_US}, ${PEAK_RSS_PYTHON_CLASSICAL_KB}, ${VTUNE_PYTHON_CLASSICAL_KB}" >> results.csv
+    echo "c, learned, ${N_KEYS}, ${N_NONKEYS}, ${LEARNED_SIZE_KB}, ${ELAPSED_TIME_C_LEARNED_S}, ${QUERY_TIME_C_LEARNED_S}, ${QUERY_AVG_C_LEARNED_US}, ${PEAK_RSS_C_LEARNED_KB}, ${VTUNE_C_LEARNED_KB}" >> results.csv
+    echo "c, classical, ${N_KEYS}, ${N_NONKEYS}, ${CLASSICAL_SIZE_KB}, ${ELAPSED_TIME_C_CLASSICAL_S}, ${QUERY_TIME_C_CLASSICAL_S}, ${QUERY_AVG_C_CLASSICAL_US}, ${PEAK_RSS_C_CLASSICAL_KB}, ${VTUNE_C_CLASSICAL_KB}" >> results.csv
+
+done

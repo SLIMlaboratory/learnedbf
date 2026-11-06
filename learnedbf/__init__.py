@@ -95,7 +95,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
                  hyperparameters={},
                  num_candidate_thresholds=10,
                  threshold_test_size=0.7,
-                 model_selection_method=StratifiedKFold(n_splits=5,
+                 model_selection_method=StratifiedKFold(n_splits=3,
                                                         shuffle=True),
                  scoring=auprc_score,
                  threshold_evaluate=threshold_evaluate,
@@ -254,7 +254,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
         except NotFittedError:
             # the classifier has to be trained
             X_neg = X[~y]
-
+             
             X_neg_trainval, X_neg_threshold_test = \
                 train_test_split(X_neg,
                                  test_size=self.threshold_test_size,
@@ -389,7 +389,7 @@ class LBF(BaseEstimator, BloomFilter, ClassifierMixin):
                         break
 
 
-                    if m_b < self.backup_filter_size:
+                    if m_b < self.backup_filter_size and t < 1 - 1 / len(scores):
                         self.threshold = t
                         self.backup_filter_size = m_b
                         backup_filter_fpr = e_b

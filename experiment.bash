@@ -15,8 +15,8 @@ if [[ "$MEASUREMENT" == "vtune" || "$MEASUREMENT" == "both" ]]; then
     source /opt/intel/oneapi/setvars.sh
 fi
 
-KEY_CSV="data/url_KEYS_keys.csv"
-NONKEY_CSV="data/url_NONKEYS_nonkeys_part1.csv"
+KEY_CSV="data/cicids2018_KEYS_keys_dedup.csv"
+NONKEY_CSV="data/cicids2018_NONKEYS_nonkeys_part1_dedup.csv"
 
 query_metrics() {
     awk -F= '
@@ -34,19 +34,19 @@ export EPSILON=0.05
 rm -f results.csv
 echo "Language, Filter, N_KEYS, N_NONKEYS, Filter_Size_KB, Elapsed_Time_s, Query_Time_s, Query_Avg_us, Peak_RSS_KB, VTune_Net_Allocation_Delta_KB" > results.csv
 
-#for N_KEYS in 100000 200000 300000 400000 500000 600000 ; do
-for N_KEYS in 10000 20000 30000 40000 50000 60000 70000 76989 ; do
+#for N_KEYS in 100000 250000 500000 750000 1000000 ; do
+for N_KEYS in 100000 250000 500000; do
     export N_KEYS
-    export N_NONKEYS=$(( N_KEYS * 3 / 2 ))
-    export N_TEST_NONKEYS=$N_NONKEYS
+    export N_NONKEYS=$(( N_KEYS ))
+    export N_TEST_NONKEYS=$(( N_NONKEYS))
 
     export FILE_NAME="filter_${N_KEYS}_${N_NONKEYS}_${EPSILON}"
 
     if [[ -f "${FILE_NAME}.learned.json" && -f "${FILE_NAME}.classical.json" ]]; then
-        echo "Using existing learned and classical filters for $N_KEYS keys."
+       echo "Using existing learned and classical filters for $N_KEYS keys."
     else
-        echo "Building a classical and learned Bloom filter with $N_KEYS keys and $N_NONKEYS non-keys..."
-        "$PYTHON" build_lbf.py --key_csv_path "$KEY_CSV" --nonkey_csv_path "$NONKEY_CSV" --n_keys $N_KEYS --n_nonkeys $N_NONKEYS --n_test_nonkeys $N_TEST_NONKEYS --file_name $FILE_NAME --epsilon $EPSILON
+       echo "Building a classical and learned Bloom filter with $N_KEYS keys and $N_NONKEYS non-keys..."
+       "$PYTHON" build_lbf.py --key_csv_path "$KEY_CSV" --nonkey_csv_path "$NONKEY_CSV" --n_keys $N_KEYS --n_nonkeys $N_NONKEYS --n_test_nonkeys $N_TEST_NONKEYS --file_name $FILE_NAME --epsilon $EPSILON
     fi
 
     echo "Building C test programs..."
