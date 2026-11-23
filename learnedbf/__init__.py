@@ -35,7 +35,7 @@ import learnedbf.BF as cbf
 
 # TODO: scoring is not handled in to/from_json in all classes
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
