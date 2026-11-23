@@ -181,3 +181,9 @@ cython_debug/
 .pypirc
 
 data/
+
+*.png
+*.json
+*.peak_kib
+*.csv
+*.fpr
