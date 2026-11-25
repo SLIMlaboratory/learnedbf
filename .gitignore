@@ -187,3 +187,5 @@ data/
 *.peak_kib
 *.csv
 *.fpr
+*.query
+*.time_rss
